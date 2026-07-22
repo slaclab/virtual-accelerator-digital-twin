@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: virtual-accelerator-config
+  namespace: virtual-accelerator
+data:
+  LCLS_LATTICE: /opt/lcls-lattice
+  KMP_DUPLICATE_LIB_OK: "TRUE"
+  OMP_NUM_THREADS: "2"
+  MKL_NUM_THREADS: "2"
+  OPENBLAS_NUM_THREADS: "2"
+  TORCH_NUM_THREADS: "2"
+  EPICS_PVA_AUTO_ADDR_LIST: "YES"
+  MODEL: cu_hxr_bmad
+  END_ELEMENT: OTR4
+  N_PARTICLES: "10000"
+  LOG_LEVEL: INFO

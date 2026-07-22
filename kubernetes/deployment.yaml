@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: virtual-accelerator
+  namespace: virtual-accelerator
+  labels:
+    app: virtual-accelerator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: virtual-accelerator
+  template:
+    metadata:
+      labels:
+        app: virtual-accelerator
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: va
+          image: ghcr.io/slaclab/virtual-accelerator-digital-twin:latest
+          imagePullPolicy: Always
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          envFrom:
+            - configMapRef:
+                name: virtual-accelerator-config
+          ports:
+            - containerPort: 5075
+              protocol: TCP
+              name: pva-tcp
+            - containerPort: 5076
+              protocol: UDP
+              name: pva-udp
+          startupProbe:
+            exec:
+              command: ["python", "-c", "import p4p; print('ok')"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 18
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import p4p; print('ok')"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3

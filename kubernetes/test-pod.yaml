@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pva-test-client
+  namespace: virtual-accelerator
+spec:
+  restartPolicy: Never
+  containers:
+    - name: client
+      image: ghcr.io/slaclab/virtual-accelerator-digital-twin:latest
+      env:
+        - name: EPICS_PVA_ADDR_LIST
+          value: virtual-accelerator.virtual-accelerator.svc.cluster.local
+        - name: EPICS_PVA_AUTO_ADDR_LIST
+          value: "NO"
+      command:
+        - python
+        - -c
+        - |
+          from p4p.client.thread import Context
+          import time
+
+          ctx = Context('pva')
+          time.sleep(5)
+
+          pvs = [
+              'BPMS:IN20:581:TMIT',
+              'BPMS:IN20:581:X',
+              'BPMS:IN20:581:Y',
+          ]
+
+          print('--- PVAccess connectivity test ---')
+          for pv in pvs:
+              try:
+                  val = ctx.get(pv, timeout=10)
+                  print(f'OK: {pv} = {val}')
+              except Exception as e:
+                  print(f'FAIL: {pv} -> {e}')
+
+          print('--- Done ---')
