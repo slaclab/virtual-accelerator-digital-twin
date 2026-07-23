@@ -12,21 +12,41 @@ import sys
 
 
 def main():
-    model = os.environ.get("MODEL", "cu_hxr_bmad")
+    model_name = os.environ.get("MODEL", "cu_hxr_bmad")
     end_element = os.environ.get("END_ELEMENT", "OTR4")
-    n_particles = os.environ.get("N_PARTICLES", "10000")
+    n_particles = int(os.environ.get("N_PARTICLES", "10000"))
     log_level = os.environ.get("LOG_LEVEL", "INFO")
 
-    sys.argv = [
-        "runners",
-        model,
-        "--end-element", end_element,
-        "--n-particles", n_particles,
-        "--log-level", log_level,
-    ]
+    import logging
+    logging.basicConfig(level=getattr(logging, log_level))
+    logging.getLogger("pytao").setLevel(logging.WARNING)
 
-    from virtual_accelerator.models.runners import main as runner_main
-    runner_main()
+    from lume_pva.runner import Runner
+    from virtual_accelerator.models.cu_hxr import (
+        get_cu_hxr_bmad_model,
+        get_cu_hxr_staged_model,
+    )
+    from virtual_accelerator.models.facet2 import (
+        get_facet_bmad_model,
+        get_facet_staged_model,
+    )
+
+    if model_name == "cu_hxr_bmad":
+        model = get_cu_hxr_bmad_model(end_element=end_element, track_beam=True)
+    elif model_name == "cu_hxr_staged":
+        model = get_cu_hxr_staged_model(end_element=end_element, n_particles=n_particles)
+    elif model_name == "facet_bmad":
+        model = get_facet_bmad_model(end_element=end_element, track_beam=True)
+    elif model_name == "facet_staged":
+        model = get_facet_staged_model(end_element=end_element, n_particles=n_particles)
+    else:
+        raise ValueError(f"Unknown model: {model_name}")
+
+    config = Runner.generate_config(model)
+    config["protocol"] = ["pva"]
+
+    runner = Runner(model, config=config)
+    runner.run()
 
 
 if __name__ == "__main__":
