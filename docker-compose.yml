@@ -1,0 +1,31 @@
+services:
+  virtual-accelerator:
+    image: va-digital-twin:local
+    build:
+      context: .
+    container_name: virtual-accelerator
+    environment:
+      MODEL: cu_hxr_bmad
+      END_ELEMENT: OTR4
+      N_PARTICLES: "10000"
+      LOG_LEVEL: INFO
+      EPICS_PVA_AUTO_ADDR_LIST: "YES"
+
+  epics-client:
+    image: va-digital-twin-client:local
+    build:
+      context: .
+      dockerfile: Dockerfile.epics-client
+      additional_contexts:
+        virtual-accelerator: service:virtual-accelerator
+    container_name: epics-client
+    depends_on:
+      - virtual-accelerator
+    environment:
+      EPICS_PVA_AUTO_ADDR_LIST: "NO"
+      EPICS_PVA_ADDR_LIST: virtual-accelerator
+      PVA_PROXY_HOST: host.docker.internal
+      PVA_PROXY_PORT: "5090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["pva_proxy_relay"]

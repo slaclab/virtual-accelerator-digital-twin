@@ -1,0 +1,5 @@
+FROM virtual-accelerator
+
+COPY scripts/ /usr/local/bin/
+
+RUN chmod +x /usr/local/bin/pvget /usr/local/bin/pvput /usr/local/bin/pva_proxy_relay

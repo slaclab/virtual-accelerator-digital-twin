@@ -15,7 +15,7 @@ docker build -t va-digital-twin .
 ### Run locally
 
 ```bash
-docker run --rm -p 5075:5075 -p 5076:5076/udp va-digital-twin
+docker compose up -d --build
 ```
 
 ### Override model parameters via environment
@@ -67,3 +67,75 @@ ghcr.io/<org>/virtual-accelerator-digital-twin:latest
 ```
 
 The container initializes a Bmad lattice simulation using PyTao, then serves all beamline PVs (magnet settings, beam parameters) over EPICS PVAccess protocol. Clients can read/write PVs using standard EPICS tools (`pvget`, `pvput`, `p4p`).
+
+## macOS host PVA access
+
+Docker Desktop does not provide a usable direct PVAccess path between a macOS
+client and a container. The `epics-client` Compose service starts the relay
+automatically, reads and writes PVs on the internal Docker network, and the
+host-native proxy serves them over loopback PVA.
+
+Start Compose. The main `Dockerfile` builds only the virtual accelerator.
+`Dockerfile.epics-client` extends that image with the proxy helpers; the
+`epics-client` service starts `pva_proxy_relay` automatically and reconnects
+to the host proxy until it becomes available.
+
+```bash
+docker compose up -d --build
+```
+
+Whenever a proxy script changes, rebuild and recreate the relay explicitly:
+
+```bash
+docker compose up -d --build --force-recreate epics-client
+```
+
+Start the host proxy in another terminal. Use `-v` while diagnosing relay or
+upstream PV connectivity:
+
+```bash
+.venv/bin/python scripts/pva_proxy_host -v
+```
+
+The proxy exposes original PV names on `127.0.0.1:5078/tcp` and
+`127.0.0.1:5079/udp`. It supports reads, writes, and monitor updates for
+arbitrary upstream PV names. Its relay listener is unauthenticated and binds
+to port `5090`; it is intended only for local Docker Desktop use.
+
+Verify that the relay is connected:
+
+```bash
+.venv/bin/python scripts/pvget va:proxy:connected
+```
+
+The expected value is `true`. The related status PVs are
+`va:proxy:subscriptions` and `va:proxy:errors`.
+
+Then access the accelerator directly from the Mac:
+
+```bash
+.venv/bin/python scripts/pvget BPMS:IN20:581:TMIT
+```
+
+Write through the proxy with:
+
+```bash
+.venv/bin/python scripts/pvput PV_NAME VALUE
+```
+
+If an accelerator PV times out, inspect the two ends of the relay:
+
+```bash
+docker compose logs --tail=100 epics-client
+```
+
+With verbose logging, the host proxy reports dynamic PV creation and relay
+subscription requests. The container relay reports either `forwarding upstream
+update for PV_NAME` or an upstream monitor error. `Channel disconnected`
+means the relay cannot currently connect to the requested PV in the
+`virtual-accelerator` Compose network.
+
+The `scripts/pvget` and `scripts/pvput` defaults already target the local
+proxy. Set `EPICS_PVA_*` variables only when deliberately using another PVA
+endpoint. Stop the proxy with `Ctrl-C`; the Compose relay reconnects
+automatically when it returns.

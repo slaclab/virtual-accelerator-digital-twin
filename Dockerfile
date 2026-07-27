@@ -2,7 +2,7 @@ ARG PYTHON_VERSION=3.12
 ARG LCLS_LATTICE_REF=52ad1a5ddd00aa57a89a4fc7f2fa1a2363216ae8
 ARG DOCKER_PLATFORM=linux/amd64
 
-FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS runtime
+FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim
 ARG PYTHON_VERSION
 ARG LCLS_LATTICE_REF
 
@@ -52,6 +52,7 @@ RUN python -m pip install --upgrade setuptools wheel \
     && cd /opt/virtual-accelerator \
     && python -m pip install -e ".[bmad,pva]" \
     && cd /app \
+    && python -m pip install --upgrade p4p \
     && python -m pip install --force-reinstall --no-deps \
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git"
 

@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+import ast
+import os
+import sys
+
+from p4p.client.thread import Context
+
+
+def main() -> int:
+    if len(sys.argv) < 3:
+        print("Usage: pvput PV VALUE", file=sys.stderr)
+        return 2
+
+    name = sys.argv[1]
+    raw_value = " ".join(sys.argv[2:])
+    try:
+        value = ast.literal_eval(raw_value)
+    except (ValueError, SyntaxError):
+        value = raw_value
+
+    conf = {
+        "EPICS_PVA_AUTO_ADDR_LIST": os.environ.get("EPICS_PVA_AUTO_ADDR_LIST", "NO"),
+        "EPICS_PVA_ADDR_LIST": os.environ.get("EPICS_PVA_ADDR_LIST", "127.0.0.1"),
+        "EPICS_PVA_SERVER_PORT": os.environ.get("EPICS_PVA_SERVER_PORT", "5078"),
+        "EPICS_PVA_BROADCAST_PORT": os.environ.get("EPICS_PVA_BROADCAST_PORT", "5079"),
+    }
+    ctx = Context("pva", conf=conf)
+    ctx.put(name, value)
+    print(f"{name} {value}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

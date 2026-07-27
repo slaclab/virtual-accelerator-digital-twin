@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""Container-side PVA client for the local Docker Desktop proxy."""
+
+import argparse
+import logging
+import os
+import socket
+import threading
+import time
+
+from p4p.client.thread import Context
+
+from pva_proxy_common import decode_value, encode_value, receive_message, send_message
+
+LOG = logging.getLogger("pva_proxy_relay")
+
+
+class Relay:
+    def __init__(self, host, port):
+        self.host, self.port = host, port
+        self.sock = None
+        self.send_lock = threading.Lock()
+        self.subscriptions = {}
+        # The proxy transports complete PVA values, including their runtime
+        # type and metadata.  Disable p4p's convenience NT unwrapping so
+        # monitor callbacks receive raw p4p.Value instances.
+        self.context = Context("pva", nt=False)
+
+    def run(self):
+        while True:
+            try:
+                self._connect_and_run()
+            except OSError as err:
+                LOG.warning("host proxy unavailable: %s", err)
+            time.sleep(1)
+
+    def _connect_and_run(self):
+        with socket.create_connection((self.host, self.port)) as sock:
+            self.sock = sock
+            LOG.info("connected to host proxy at %s:%d", self.host, self.port)
+            while (message := receive_message(sock)) is not None:
+                self._handle(message)
+        self.sock = None
+        for subscription in self.subscriptions.values():
+            subscription.close()
+        self.subscriptions.clear()
+
+    def _send(self, message):
+        if self.sock is not None:
+            send_message(self.sock, message, self.send_lock)
+
+    def _handle(self, message):
+        op, name = message.get("op"), message.get("pv")
+        if op == "subscribe":
+            if name not in self.subscriptions:
+                LOG.debug("subscribing upstream to %s", name)
+                self.subscriptions[name] = self.context.monitor(
+                    name, lambda value, pv=name: self._monitor(pv, value), notify_disconnect=True)
+        elif op == "unsubscribe":
+            subscription = self.subscriptions.pop(name, None)
+            if subscription is not None:
+                subscription.close()
+        elif op == "put":
+            threading.Thread(target=self._put, args=(message,), daemon=True).start()
+
+    def _monitor(self, name, value):
+        if isinstance(value, Exception):
+            LOG.warning("upstream monitor error for %s: %s", name, value)
+            self._send({"op": "error", "pv": name, "error": str(value)})
+            return
+        LOG.debug("forwarding upstream update for %s", name)
+        self._send({"op": "update", "pv": name, "payload": encode_value(value)})
+
+    def _put(self, message):
+        try:
+            self.context.put(message["pv"], decode_value(message["payload"]), timeout=5)
+            self._send({"op": "put-result", "id": message["id"]})
+        except Exception as err:
+            self._send({"op": "put-result", "id": message["id"], "error": str(err)})
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", default=os.environ.get("PVA_PROXY_HOST", "host.docker.internal"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PVA_PROXY_PORT", "5090")))
+    parser.add_argument("-v", "--verbose", action="store_true")
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
+    Relay(args.host, args.port).run()
+
+
+if __name__ == "__main__":
+    main()

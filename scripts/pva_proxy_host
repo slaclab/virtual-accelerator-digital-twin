@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""Serve Docker-hosted PVs through a loopback-only local PVA server."""
+
+import argparse
+import itertools
+import logging
+import socket
+import threading
+
+from p4p.nt import NTScalar
+from p4p.server import DynamicProvider, Server, StaticProvider
+from p4p.server.thread import SharedPV
+
+from pva_proxy_common import decode_value, receive_message, send_message
+
+LOG = logging.getLogger("pva_proxy_host")
+
+
+def _name_text(name):
+    """Normalize DynamicProvider names across p4p versions."""
+    return name.decode("utf-8") if isinstance(name, bytes) else name
+
+
+class Proxy:
+    def __init__(self, relay_host, relay_port):
+        self.relay_host, self.relay_port = relay_host, relay_port
+        self.sock = None
+        self.send_lock = threading.Lock()
+        self.lock = threading.Lock()
+        self.pvs = {}
+        self.pending_puts = {}
+        self.ids = itertools.count(1)
+        self.connected = False
+        self.status = {
+            "connected": SharedPV(nt=NTScalar("?"), initial=False),
+            "subscriptions": SharedPV(nt=NTScalar("i"), initial=0),
+            "errors": SharedPV(nt=NTScalar("i"), initial=0),
+        }
+
+    def start(self):
+        threading.Thread(target=self._accept, name="pva-proxy-relay", daemon=True).start()
+
+    def _accept(self):
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind((self.relay_host, self.relay_port))
+        listener.listen(1)
+        LOG.info("waiting for container relay on %s:%d", self.relay_host, self.relay_port)
+        while True:
+            sock, peer = listener.accept()
+            LOG.info("container relay connected from %s:%d", *peer)
+            with self.lock:
+                if self.sock is not None:
+                    self.sock.close()
+                self.sock = sock
+                self.connected = True
+                self.status["connected"].post(True)
+                names = list(self.pvs)
+            for name in names:
+                self._send({"op": "subscribe", "pv": name})
+            try:
+                while (message := receive_message(sock)) is not None:
+                    self._handle(message)
+            except (OSError, ValueError) as err:
+                LOG.warning("relay connection closed: %s", err)
+            finally:
+                with self.lock:
+                    if self.sock is sock:
+                        self.sock = None
+                        self.connected = False
+                        self.status["connected"].post(False)
+
+    def _send(self, message):
+        sock = self.sock
+        if sock is None:
+            raise RuntimeError("container relay is not connected")
+        send_message(sock, message, self.send_lock)
+
+    def _handle(self, message):
+        op = message.get("op")
+        if op == "update":
+            with self.lock:
+                pv = self.pvs.get(message["pv"])
+            if pv is None:
+                return
+            value = decode_value(message["payload"])
+            if pv.isOpen():
+                pv.post(value)
+            else:
+                pv.open(value)
+        elif op == "put-result":
+            with self.lock:
+                put = self.pending_puts.pop(message["id"], None)
+            if put is not None:
+                if message.get("error"):
+                    put.done(error=message["error"])
+                else:
+                    put.done()
+        elif op == "error":
+            LOG.warning("relay: %s", message.get("error"))
+            self.status["errors"].post(self.status["errors"].current() + 1)
+
+    def testChannel(self, name):
+        return not _name_text(name).startswith("va:proxy:")
+
+    def makeChannel(self, name, peer):
+        name = _name_text(name)
+        with self.lock:
+            pv = self.pvs.get(name)
+            if pv is None:
+                LOG.debug("creating dynamic proxy PV %s for %s", name, peer)
+                pv = SharedPV()
+                self.pvs[name] = pv
+                self.status["subscriptions"].post(len(self.pvs))
+
+                @pv.put
+                def forward_put(shared_pv, operation, pv_name=name):
+                    request_id = str(next(self.ids))
+                    with self.lock:
+                        self.pending_puts[request_id] = operation
+                    try:
+                        from pva_proxy_common import encode_value
+                        self._send({"op": "put", "id": request_id, "pv": pv_name,
+                                    "payload": encode_value(operation.value())})
+                    except Exception as err:
+                        with self.lock:
+                            self.pending_puts.pop(request_id, None)
+                        operation.done(error=str(err))
+        try:
+            LOG.debug("subscribing relay to %s", name)
+            self._send({"op": "subscribe", "pv": name})
+        except RuntimeError:
+            LOG.info("queued subscription for %s until relay reconnects", name)
+        return pv
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--relay-host", default="0.0.0.0")
+    parser.add_argument("--relay-port", type=int, default=5090)
+    parser.add_argument("--pva-server-port", type=int, default=5078)
+    parser.add_argument("--pva-search-port", type=int, default=5079)
+    parser.add_argument("-v", "--verbose", action="store_true")
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
+
+    proxy = Proxy(args.relay_host, args.relay_port)
+    status = StaticProvider("va-proxy-status")
+    for name, pv in proxy.status.items():
+        status.add("va:proxy:" + name, pv)
+    dynamic = DynamicProvider("va-proxy", proxy)
+    config = {
+        "EPICS_PVAS_INTF_ADDR_LIST": "127.0.0.1",
+        "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
+        "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1:%d" % args.pva_search_port,
+        "EPICS_PVAS_BROADCAST_PORT": str(args.pva_search_port),
+        "EPICS_PVAS_SERVER_PORT": str(args.pva_server_port),
+    }
+    proxy.start()
+    Server.forever(providers=[status, dynamic], conf=config, useenv=False)
+
+
+if __name__ == "__main__":
+    main()
