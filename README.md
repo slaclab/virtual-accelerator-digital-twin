@@ -12,6 +12,20 @@ Runs the Bmad/Tao physics model (OTR2 → OTR4) and serves live PVs via `lume-pv
 docker build -t va-digital-twin .
 ```
 
+### Demo
+```bash
+docker build -t va-digital-twin .
+docker run --rm --name va-test --network host va-digital-twin```
+
+and then in another terminal 
+docker exec va-test python -c "
+from p4p.client.thread import Context
+ctx = Context('pva')
+val = ctx.get('BPMS:IN20:581:TMIT', timeout=5)
+print('BPMS:IN20:581:TMIT =', val)
+"
+```
+
 ### Run locally
 
 ```bash
