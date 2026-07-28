@@ -56,6 +56,9 @@ RUN python -m pip install --upgrade setuptools wheel \
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git"
 
 COPY run.py .
+# scripts/ ships smoke_test.py so the image can self-verify (CI gate, apptainer,
+# k8s test-pod) without extra tooling on the host.
+COPY scripts/ ./scripts/
 
 EXPOSE 5075/tcp
 EXPOSE 5076/udp

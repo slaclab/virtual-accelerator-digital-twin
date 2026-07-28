@@ -61,12 +61,21 @@ This creates:
 
 Edit `kubernetes/configmap.yaml` to change model parameters (MODEL, END_ELEMENT, etc.) without rebuilding the image.
 
+## Server Deployment (Apptainer)
+
+To run on a shared server (e.g. SLAC `dev-srv09`) via Apptainer — including how to
+update the image and automate updates — see [`docs/server-deployment.md`](docs/server-deployment.md).
+
 ## CI/CD
 
-On push to `main`, the GitHub Actions workflow builds and pushes the image to:
+On push to `main`, the GitHub Actions workflow **builds the image, smoke-tests it
+(boots the container and verifies PVs are served over PVA), and only then pushes**
+to:
 ```
 ghcr.io/<org>/virtual-accelerator-digital-twin:latest
 ```
+A build whose smoke test fails is never published. See `scripts/smoke_test.py` and
+[the CI gate section](docs/server-deployment.md#4-how-images-are-tested-before-publish-ci-gate).
 
 ## Architecture
 
