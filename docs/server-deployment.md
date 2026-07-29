@@ -20,12 +20,17 @@ Apptainer runs SIF files, so first convert (pull) the OCI image from ghcr:
 
 ```bash
 # :latest tracks main. Prefer pinning to a specific build for reproducibility:
-apptainer pull docker://ghcr.io/slaclab/virtual-accelerator-digital-twin:latest
+apptainer pull virtual-accelerator.sif \
+  docker://ghcr.io/slaclab/virtual-accelerator-digital-twin:latest
 
 # Pinned to a specific commit (recommended for anything people depend on):
-apptainer pull docker://ghcr.io/slaclab/virtual-accelerator-digital-twin:sha-803277f
+apptainer pull virtual-accelerator_sha-803277f.sif \
+  docker://ghcr.io/slaclab/virtual-accelerator-digital-twin:sha-803277f
 ```
 
+The `:sha-<short>` tags are produced by CI for every build, so a SIF named after
+its sha (as in `virtual-accelerator-digital-twin_sha-803277f.sif`) always maps back
+to exact source.
 
 ### Start the server (terminal 1)
 
@@ -91,7 +96,8 @@ Re-pull and swap the SIF, then restart:
 
 ```bash
 # Overwrite the existing SIF with the latest image
-apptainer pull --force docker://ghcr.io/slaclab/virtual-accelerator-digital-twin:latest
+apptainer pull --force virtual-accelerator.sif \
+  docker://ghcr.io/slaclab/virtual-accelerator-digital-twin:latest
 
 # Restart whatever is running the old SIF (Ctrl-C terminal 1, then re-run),
 # or if using a named instance:

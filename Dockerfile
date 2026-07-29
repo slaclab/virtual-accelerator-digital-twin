@@ -56,11 +56,14 @@ RUN python -m pip install --upgrade setuptools wheel \
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git"
 
 COPY run.py .
-# scripts/ ships smoke_test.py so the image can self-verify (CI gate, apptainer,
-# k8s test-pod) without extra tooling on the host.
+COPY entrypoint.sh .
+# scripts/ ships smoke_test.py and epics_env.sh so the image can self-verify
+# (CI gate, apptainer, k8s test-pod) and clients can configure their environment.
 COPY scripts/ ./scripts/
 
-EXPOSE 5075/tcp
-EXPOSE 5076/udp
+ENV PVA_PORT=5075
 
-CMD ["python", "run.py"]
+EXPOSE 5075/tcp
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["5075"]
