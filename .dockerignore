@@ -1,0 +1,20 @@
+# Python caches (don't bake stray build artifacts into the image)
+__pycache__/
+*.py[cod]
+
+# VCS / CI / editor
+.git/
+.github/
+.gitignore
+
+# Docs and local-only tooling (not needed at runtime)
+docs/
+kubernetes/
+*.md
+Issues
+
+# Server-side helper, runs on the host not in the container
+scripts/update-sif.sh
+
+# Build artifacts
+*.sif

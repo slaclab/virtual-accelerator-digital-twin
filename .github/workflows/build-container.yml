@@ -22,13 +22,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
@@ -40,7 +33,50 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push image
+      # Build the image and load it into the local Docker daemon (no push yet) so
+      # the smoke test can boot it. cache-to/from is shared with the push step
+      # below, which is therefore a near-instant cache hit.
+      - name: Build image (load, no push)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          push: false
+          tags: va-digital-twin:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          provenance: false
+
+      # Boot the freshly built image and verify it actually serves PVs over
+      # PVAccess. This is the gate: if the model fails to import/initialise or the
+      # PVs never come up, the job fails here and nothing is pushed.
+      - name: Smoke test (boot container, verify PVs)
+        run: |
+          docker run -d --name va-smoke --network host va-digital-twin:ci
+          docker exec \
+            -e SMOKE_STARTUP_TIMEOUT=300 \
+            va-smoke python scripts/smoke_test.py
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker logs va-smoke || true
+
+      - name: Tear down smoke-test container
+        if: always()
+        run: docker rm -f va-smoke || true
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Cache hit from the build step above, so this only pushes the layers.
+      # Runs only if the smoke test passed.
+      - name: Push image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
