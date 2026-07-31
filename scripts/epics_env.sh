@@ -9,10 +9,10 @@ if [ -z "${1:-}" ]; then
     return 1 2>/dev/null || exit 1
 fi
 
-export EPICS_PVA_NAME_SERVERS="localhost:$1"
-export EPICS_PVA_ADDR_LIST=""
+export EPICS_PVA_NAME_SERVERS="127.0.0.1:$1"
+export EPICS_PVA_ADDR_LIST="127.0.0.1"
 export EPICS_PVA_AUTO_ADDR_LIST="NO"
-unset EPICS_PVA_SERVER_PORT 2>/dev/null
-unset EPICS_PVA_BROADCAST_PORT 2>/dev/null
+export EPICS_PVA_SERVER_PORT="$1"
+export EPICS_PVA_BROADCAST_PORT="$(($1 + 1))"
 
-echo "EPICS PVA client configured — name server: localhost:$1 (TCP only, no UDP)"
+echo "EPICS PVA client configured — name server: 127.0.0.1:$1, addr_list: 127.0.0.1"

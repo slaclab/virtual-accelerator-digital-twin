@@ -4,7 +4,53 @@ Containerized deployment of the LCLS CU HXR virtual accelerator as an EPICS PVAc
 
 Runs the Bmad/Tao physics model (OTR2 → OTR4) and serves live PVs via `lume-pva`.
 
-## Quick Start
+## Running on dev-srv09
+
+### Terminal 1 — Start instance A
+
+```bash
+git clone https://github.com/slaclab/virtual-accelerator-digital-twin.git
+cd virtual-accelerator-digital-twin/scripts
+./launch.sh --runtime apptainer --image /sdf/group/cds/sw/epics/users/gopikab/va-dt/virtual-accelerator.sif
+```
+
+Wait until the PVA server starts up (you will see some WARNINGs — that's normal).
+The script will print something like:
+
+```
+==> Free port found: 5077
+
+To connect from another terminal:
+  source scripts/epics_env.sh 5077
+```
+
+Note the port number.
+
+### Terminal 2 — Start instance B (port isolation)
+
+```bash
+cd virtual-accelerator-digital-twin/scripts
+./launch.sh --runtime apptainer --image /sdf/group/cds/sw/epics/users/gopikab/va-dt/virtual-accelerator.sif
+```
+
+This will automatically pick a different free port (e.g. 5079).
+
+### Terminal 3 — Query PVs
+
+```bash
+cd virtual-accelerator-digital-twin
+source scripts/epics_env.sh 5077
+pvget BPMS:IN20:581:TMIT
+```
+
+To switch to instance B, re-source with its port:
+
+```bash
+source scripts/epics_env.sh 5079
+pvget BPMS:IN20:581:TMIT
+```
+
+## Docker (local development)
 
 ### Build
 
@@ -12,87 +58,26 @@ Runs the Bmad/Tao physics model (OTR2 → OTR4) and serves live PVs via `lume-pv
 docker build -t va-digital-twin .
 ```
 
-### Demo
-```bash
-docker build -t va-digital-twin .
-docker run --rm --name va-test --network host va-digital-twin
-```
-
-and then in another terminal 
-```bash
-docker exec va-test python -c "
-from p4p.client.thread import Context
-ctx = Context('pva')
-val = ctx.get('BPMS:IN20:581:TMIT', timeout=5)
-print('BPMS:IN20:581:TMIT =', val)
-"
-```
-
-### Run locally (auto-selects a free port)
+### Run (auto-selects a free port)
 
 ```bash
 ./scripts/launch.sh
 ```
 
-This finds an open port starting from 5075, prints it, and starts the container.
-Then in a **second terminal**:
+Then in a second terminal:
 
 ```bash
 source scripts/epics_env.sh <port>   # use the port printed by launch.sh
 pvget BPMS:IN20:581:TMIT
 ```
 
-Options:
-```bash
-./scripts/launch.sh --name my-va      # set container name
-./scripts/launch.sh --detach          # run in background
-./scripts/launch.sh --image ghcr.io/org/va-digital-twin:latest
-```
-
-### Run on a specific port (manual)
-
-Only the TCP port needs to be mapped — clients connect via `EPICS_PVA_NAME_SERVERS` (TCP-direct),
-so UDP broadcast is not needed.
+### Run on a specific port
 
 ```bash
-# Docker — via argument
 docker run --rm -p 5175:5175 va-digital-twin 5175
-
-# Docker — via environment variable
-docker run --rm -p 5175:5175 -e PVA_PORT=5175 va-digital-twin
-
-# Apptainer (host networking) — pass port as argument
-apptainer run va-digital-twin.sif 5175
 ```
 
-Then in a **second terminal**, configure the client to connect to that port:
-
-```bash
-source scripts/epics_env.sh 5175
-pvget BPMS:IN20:581:TMIT
-```
-
-### Multiple simultaneous instances
-
-Each `launch.sh` invocation automatically picks a different free port:
-
-```bash
-# Terminal 1
-./scripts/launch.sh --name va-A
-
-# Terminal 2
-./scripts/launch.sh --name va-B
-
-# Terminal 3 — query instance A (use port printed by first launch)
-source scripts/epics_env.sh 5075
-pvget BPMS:IN20:581:TMIT
-
-# Switch to instance B (use port printed by second launch)
-source scripts/epics_env.sh 5077
-pvget BPMS:IN20:581:TMIT
-```
-
-### Override model parameters via environment
+### Override model parameters
 
 ```bash
 docker run --rm \
@@ -115,25 +100,19 @@ This creates:
 - Single-replica Deployment running the virtual accelerator
 - Service exposing PVAccess ports (5075/tcp, 5076/udp)
 
-### Customizing
-
-Edit `kubernetes/configmap.yaml` to change model parameters (MODEL, END_ELEMENT, etc.) without rebuilding the image.
+Edit `kubernetes/configmap.yaml` to change model parameters without rebuilding the image.
 
 ## Server Deployment (Apptainer)
 
-To run on a shared server (e.g. SLAC `dev-srv09`) via Apptainer — including how to
-update the image and automate updates — see [`docs/server-deployment.md`](docs/server-deployment.md).
+For full details on image updates, automation, and CI — see [`docs/server-deployment.md`](docs/server-deployment.md).
 
 ## CI/CD
 
-On push to `main`, the GitHub Actions workflow **builds the image, smoke-tests it
-(boots the container and verifies PVs are served over PVA), and only then pushes**
-to:
+On push to `main`, GitHub Actions **builds, smoke-tests, and pushes** to:
 ```
 ghcr.io/<org>/virtual-accelerator-digital-twin:latest
 ```
-A build whose smoke test fails is never published. See `scripts/smoke_test.py` and
-[the CI gate section](docs/server-deployment.md#4-how-images-are-tested-before-publish-ci-gate).
+A build whose smoke test fails is never published. See `scripts/smoke_test.py`.
 
 ## Architecture
 
@@ -145,7 +124,7 @@ A build whose smoke test fails is never published. See `scripts/smoke_test.py` a
 │    └─ virtual_accelerator.models.runners │
 │         └─ cu_hxr_bmad model (Tao/Bmad)  │
 │              └─ lume-pva Runner           │
-│                   └─ EPICS PVAccess :5075 │
+│                   └─ EPICS PVAccess       │
 └──────────────────────────────────────────┘
 ```
 
