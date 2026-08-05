@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: va-config
+    behavior: create
+    literals:
+      - MODEL=cu_hxr_staged
+      - REMOTE_INPUTS=true
+      - PV_SUFFIX=_LUME
+      - END_ELEMENT=OTR4
+      - N_PARTICLES=10000
+      - LOG_LEVEL=INFO
+      - LCLS_LATTICE=/opt/lcls-lattice
+      - KMP_DUPLICATE_LIB_OK=TRUE
+      - OMP_NUM_THREADS=2
+      - MKL_NUM_THREADS=2
+      - OPENBLAS_NUM_THREADS=2
+      - TORCH_NUM_THREADS=2
+      - EPICS_PVA_AUTO_ADDR_LIST=YES
+patches:
+  - target:
+      kind: Deployment
+      name: virtual-accelerator
+    path: deployment-patch.yaml
