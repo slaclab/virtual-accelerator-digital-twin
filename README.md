@@ -88,19 +88,58 @@ docker run --rm \
   va-digital-twin
 ```
 
-## Kubernetes Deployment
+## Kubernetes Deployment (Digital Twin)
+
+The `kubernetes/` directory uses kustomize with a shared base and per-model overlays.
+
+### Deploy the CU HXR staged Digital Twin
 
 ```bash
-kubectl apply -k kubernetes/
+kubectl apply -k kubernetes/overlays/cu-hxr-staged/
 ```
 
 This creates:
 - Namespace `virtual-accelerator`
-- ConfigMap with model parameters and thread-pinning env vars
-- Single-replica Deployment running the virtual accelerator
+- ConfigMap with DT-specific parameters (`REMOTE_INPUTS=true`, `PV_SUFFIX=_LUME`)
+- Single-replica Deployment with `hostNetwork: true` (for EPICS accessibility)
 - Service exposing PVAccess ports (5075/tcp, 5076/udp)
 
-Edit `kubernetes/configmap.yaml` to change model parameters without rebuilding the image.
+The DT reads live inputs from production EPICS and writes model outputs with `_LUME` appended to all PV names.
+
+### Verify from lcls-srv02
+
+```bash
+export EPICS_PVA_ADDR_LIST="<node-ip>"
+export EPICS_PVA_AUTO_ADDR_LIST=NO
+pvget BPMS:IN20:581:TMIT_LUME
+```
+
+### Directory structure
+
+```
+kubernetes/
+  base/                         # Shared deployment template
+  overlays/
+    cu-hxr-staged/              # CU HXR staged model (prod DT)
+    facet-staged/               # (future) FACET staged model
+```
+
+### Adding a new model
+
+Copy `kubernetes/overlays/cu-hxr-staged/` and change `MODEL` in the kustomization literals.
+
+### Environment variables for DT mode
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REMOTE_INPUTS` | `false` | Read inputs from prod EPICS instead of serving them |
+| `PV_SUFFIX` | (none) | Suffix appended to all served PV names (e.g. `_LUME`) |
+
+These are in addition to the standard `MODEL`, `END_ELEMENT`, `N_PARTICLES`, `LOG_LEVEL` variables.
+
+### Legacy VA deployment example
+
+The previous standalone VA deployment files are preserved in `examples/kubernetes-va/` for reference.
 
 ## Server Deployment (Apptainer)
 

@@ -5,6 +5,8 @@ Configurable via environment variables:
     END_ELEMENT    - Lattice end element (default: OTR4)
     N_PARTICLES    - Number of particles (default: 10000)
     LOG_LEVEL      - Logging level (default: INFO)
+    REMOTE_INPUTS  - Read inputs from prod EPICS (default: false)
+    PV_SUFFIX      - Suffix appended to served PV names (default: none)
 """
 
 import os
@@ -16,6 +18,8 @@ def main():
     end_element = os.environ.get("END_ELEMENT", "OTR4")
     n_particles = int(os.environ.get("N_PARTICLES", "10000"))
     log_level = os.environ.get("LOG_LEVEL", "INFO")
+    remote_inputs = os.environ.get("REMOTE_INPUTS", "").lower() in ("true", "1", "yes")
+    pv_suffix = os.environ.get("PV_SUFFIX", "")
 
     import logging
     logging.basicConfig(level=getattr(logging, log_level))
@@ -42,8 +46,13 @@ def main():
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
-    config = Runner.generate_config(model)
+    config = Runner.generate_config(model, remote_inputs=remote_inputs)
     config["protocol"] = ["pva"]
+
+    if pv_suffix:
+        for k, v in config['variables'].items():
+            if v['mode'] in ['ro', 'rw']:
+                v['pv'] = v['pv'] + pv_suffix
 
     runner = Runner(model, config=config)
     runner.run()
