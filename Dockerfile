@@ -1,5 +1,6 @@
 ARG PYTHON_VERSION=3.12
 ARG LCLS_LATTICE_REF=52ad1a5ddd00aa57a89a4fc7f2fa1a2363216ae8
+ARG VIRTUAL_ACCELERATOR_REF=fbd2f392809b59280bcb97da76ab11c0438dd915
 ARG DOCKER_PLATFORM=linux/amd64
 
 FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS runtime
@@ -50,6 +51,7 @@ RUN python -m pip install --upgrade setuptools wheel \
     && python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cpu torch \
     && git clone https://github.com/slaclab/virtual-accelerator.git /opt/virtual-accelerator \
     && cd /opt/virtual-accelerator \
+    && git checkout ${VIRTUAL_ACCELERATOR_REF} \
     && python -m pip install -e ".[bmad,pva,surrogate]" \
     && cd /app \
     && python -m pip install --force-reinstall --no-deps \
