@@ -12,6 +12,30 @@ export EPICS_PVAS_BROADCAST_PORT="$((PORT + 1))"
 export EPICS_PVA_SERVER_PORT="$PORT"
 export EPICS_PVA_BROADCAST_PORT="$((PORT + 1))"
 
+# pvxs requires IP addresses (not hostnames) in EPICS_PVA_NAME_SERVERS.
+# Resolve any hostname to its IP at startup.
+if [ -n "${EPICS_PVA_NAME_SERVERS:-}" ]; then
+    resolved=""
+    for entry in $EPICS_PVA_NAME_SERVERS; do
+        host="${entry%%:*}"
+        port="${entry##*:}"
+        # If it's already an IP, keep it; otherwise resolve via getent
+        if echo "$host" | grep -qP '^\d+\.\d+\.\d+\.\d+$'; then
+            resolved="${resolved:+$resolved }${entry}"
+        else
+            ip=$(getent hosts "$host" | awk '{print $1; exit}')
+            if [ -n "$ip" ]; then
+                resolved="${resolved:+$resolved }${ip}:${port}"
+                echo "Resolved $host -> $ip"
+            else
+                echo "WARNING: Could not resolve $host, skipping"
+            fi
+        fi
+    done
+    export EPICS_PVA_NAME_SERVERS="$resolved"
+    echo "EPICS_PVA_NAME_SERVERS=$EPICS_PVA_NAME_SERVERS"
+fi
+
 echo "PVA server listening on port: $PORT (tcp), broadcast: $((PORT + 1)) (udp)"
 
 exec python run.py
