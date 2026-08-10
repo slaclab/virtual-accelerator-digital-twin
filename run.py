@@ -7,8 +7,12 @@ Configurable via environment variables:
     LOG_LEVEL      - Logging level (default: INFO)
     REMOTE_INPUTS  - Read inputs from prod EPICS (default: false)
     PV_SUFFIX      - Suffix appended to served PV names (default: none)
+    PV_SUFFIX_ML   - Suffix for ML model outputs in staged models (default: none)
+    PV_SUFFIX_PH   - Suffix for physics model outputs in staged models (default: none)
+    PV_RENAMES     - JSON dict of PV name renames applied before suffix (default: none)
 """
 
+import json
 import os
 import sys
 
@@ -20,6 +24,9 @@ def main():
     log_level = os.environ.get("LOG_LEVEL", "INFO")
     remote_inputs = os.environ.get("REMOTE_INPUTS", "").lower() in ("true", "1", "yes")
     pv_suffix = os.environ.get("PV_SUFFIX", "")
+    pv_suffix_ml = os.environ.get("PV_SUFFIX_ML", "")
+    pv_suffix_ph = os.environ.get("PV_SUFFIX_PH", "")
+    pv_renames = json.loads(os.environ.get("PV_RENAMES", "{}"))
 
     import logging
     logging.basicConfig(level=getattr(logging, log_level))
@@ -50,7 +57,21 @@ def main():
     config["protocol"] = ["pva"]
     config["update_rate"] = 0
 
-    if pv_suffix:
+    # Apply PV renames before suffix
+    for k, v in config['variables'].items():
+        if v['pv'] in pv_renames:
+            v['pv'] = pv_renames[v['pv']]
+
+    # Apply differentiated suffixes for staged models (ML vs physics)
+    if (pv_suffix_ml or pv_suffix_ph) and hasattr(model, 'lume_model_instances'):
+        ml_vars = set(model.lume_model_instances[0].supported_variables)
+        for k, v in config['variables'].items():
+            if v['mode'] in ['ro', 'rw']:
+                if k in ml_vars:
+                    v['pv'] = v['pv'] + pv_suffix_ml
+                else:
+                    v['pv'] = v['pv'] + pv_suffix_ph
+    elif pv_suffix:
         for k, v in config['variables'].items():
             if v['mode'] in ['ro', 'rw']:
                 v['pv'] = v['pv'] + pv_suffix

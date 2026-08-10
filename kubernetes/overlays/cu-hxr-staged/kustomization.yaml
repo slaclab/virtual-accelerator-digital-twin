@@ -10,7 +10,9 @@ configMapGenerator:
     literals:
       - MODEL=cu_hxr_staged
       - REMOTE_INPUTS=true
-      - PV_SUFFIX=_LUME
+      - PV_SUFFIX_ML=_CU_HXR_LUME_ML_DT
+      - PV_SUFFIX_PH=_CU_HXR_LUME_PH_DT
+      - PV_RENAMES={"sigma_z":"OTRS:IN20:571:ZRMS","norm_emit_x":"OTRS:IN20:571:EMITN_X","norm_emit_y":"OTRS:IN20:571:EMITN_Y"}
       - END_ELEMENT=OTR4
       - N_PARTICLES=10000
       - LOG_LEVEL=INFO
