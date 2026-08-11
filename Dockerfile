@@ -55,7 +55,8 @@ RUN python -m pip install --upgrade setuptools wheel \
     && python -m pip install -e ".[bmad,pva,surrogate]" \
     && cd /app \
     && python -m pip install --force-reinstall --no-deps \
-        "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git"
+        "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git" \
+        "lume-pva @ git+https://github.com/lume-science/lume-pva.git"
 
 COPY run.py .
 COPY entrypoint.sh .
