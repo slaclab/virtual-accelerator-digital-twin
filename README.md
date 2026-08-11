@@ -100,18 +100,19 @@ kubectl apply -k kubernetes/overlays/cu-hxr-staged/
 
 This creates:
 - Namespace `virtual-accelerator`
-- ConfigMap with DT-specific parameters (`REMOTE_INPUTS=true`, `PV_SUFFIX=_LUME`)
+- ConfigMap with DT-specific parameters (`REMOTE_INPUTS=true`, differentiated PV suffixes)
 - Single-replica Deployment with `hostNetwork: true` (for EPICS accessibility)
 - Service exposing PVAccess ports (5075/tcp, 5076/udp)
 
-The DT reads live inputs from production EPICS and writes model outputs with `_LUME` appended to all PV names.
+The DT reads live inputs from production EPICS and writes model outputs with differentiated suffixes (`_CU_HXR_LUME_ML_DT` for ML, `_CU_HXR_LUME_PH_DT` for physics).
 
 ### Verify from lcls-srv02
 
 ```bash
 export EPICS_PVA_ADDR_LIST="<node-ip>"
 export EPICS_PVA_AUTO_ADDR_LIST=NO
-pvget BPMS:IN20:581:TMIT_LUME
+pvget BPMS:IN20:581:TMIT_CU_HXR_LUME_PH_DT
+pvget OTRS:IN20:571:XRMS_CU_HXR_LUME_ML_DT
 ```
 
 ### Directory structure
@@ -133,9 +134,38 @@ Copy `kubernetes/overlays/cu-hxr-staged/` and change `MODEL` in the kustomizatio
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `REMOTE_INPUTS` | `false` | Read inputs from prod EPICS instead of serving them |
-| `PV_SUFFIX` | (none) | Suffix appended to all served PV names (e.g. `_LUME`) |
+| `PV_SUFFIX` | (none) | Suffix appended to all served PV names (e.g. `_LUME`). Used when a single suffix is desired for all outputs. |
+| `PV_SUFFIX_ML` | (none) | Suffix for ML model outputs in staged models (e.g. `_CU_HXR_LUME_ML_DT`) |
+| `PV_SUFFIX_PH` | (none) | Suffix for physics (Bmad) model outputs in staged models (e.g. `_CU_HXR_LUME_PH_DT`) |
+| `PV_RENAMES` | (none) | JSON dict of PV name renames applied before suffix (e.g. `{"sigma_z":"OTRS:IN20:571:ZRMS"}`) |
 
 These are in addition to the standard `MODEL`, `END_ELEMENT`, `N_PARTICLES`, `LOG_LEVEL` variables.
+
+### PV naming convention (staged models)
+
+For staged models that combine an ML surrogate with a physics (Bmad) simulation, output PV names are differentiated by source:
+
+- **ML outputs** → `<PV>_CU_HXR_LUME_ML_DT`
+- **Physics outputs** → `<PV>_CU_HXR_LUME_PH_DT`
+
+The naming convention is: `<PV>_<BEAMLINE>_LUME_<MODEL_TYPE>_DT`
+
+| Component | Meaning |
+|-----------|---------|
+| `CU_HXR` | Beamline (copper linac, hard X-ray) |
+| `LUME` | Project identifier |
+| `ML` / `PH` | Model type (ML surrogate or physics/Bmad) |
+| `DT` | Digital Twin |
+
+Additionally, some ML outputs have their base PV names remapped via `PV_RENAMES` to follow EPICS naming conventions:
+
+| Internal name | Served PV (before suffix) |
+|---------------|---------------------------|
+| `sigma_z` | `OTRS:IN20:571:ZRMS` |
+| `norm_emit_x` | `OTRS:IN20:571:EMITN_X` |
+| `norm_emit_y` | `OTRS:IN20:571:EMITN_Y` |
+
+When `PV_SUFFIX_ML`/`PV_SUFFIX_PH` are set, they take precedence over `PV_SUFFIX`. The source of each output is determined by checking `model.lume_model_instances[0].supported_variables` (ML sub-model).
 
 ### Legacy VA deployment example
 

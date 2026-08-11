@@ -7,6 +7,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      no-cache:
+        description: "Build without Docker layer cache"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,10 +49,11 @@ jobs:
           load: true
           push: false
           tags: va-digital-twin:ci
-          cache-from: type=gha
+          cache-from: ${{ inputs.no-cache && '' || 'type=gha' }}
           cache-to: type=gha,mode=max
           platforms: linux/amd64
           provenance: false
+          no-cache: ${{ inputs.no-cache || false }}
 
       # Boot the freshly built image and verify it actually serves PVs over
       # PVAccess. This is the gate: if the model fails to import/initialise or the
@@ -84,7 +90,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+          cache-from: ${{ inputs.no-cache && '' || 'type=gha' }}
           cache-to: type=gha,mode=max
           platforms: linux/amd64
           provenance: false
+          no-cache: ${{ inputs.no-cache || false }}
