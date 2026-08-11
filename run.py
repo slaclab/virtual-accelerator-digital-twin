@@ -77,32 +77,6 @@ def main():
                 v['pv'] = v['pv'] + pv_suffix
 
     runner = Runner(model, config=config)
-
-    if remote_inputs:
-        import threading
-        import time
-
-        def sequential_loop(runner):
-            """get inputs -> run model -> write outputs -> repeat"""
-            log = logging.getLogger("LumePva")
-            remote_pvs = list(runner.subs.keys())
-            log.info(f"Starting sequential loop with {len(remote_pvs)} remote PVs")
-            while True:
-                new_values = {}
-                for pv in remote_pvs:
-                    var_name = runner.pv_to_var.get(pv, pv)
-                    try:
-                        val = runner.pvua_context.get(pv, timeout=1)
-                        if val is not None:
-                            new_values[var_name] = {"value": val, "ts": time.time()}
-                    except Exception as e:
-                        log.warning(f"Failed to get {pv}: {e}")
-                log.info(f"Fetched {len(new_values)} inputs, running model...")
-                runner._enqueue(new_values)
-
-        t = threading.Thread(target=sequential_loop, args=(runner,), daemon=True)
-        t.start()
-
     runner.run()
 
 
