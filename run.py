@@ -76,7 +76,20 @@ def main():
             if v['mode'] in ['ro', 'rw']:
                 v['pv'] = v['pv'] + pv_suffix
 
+    config["remote_model_mode"] = "snapshot"
+
     runner = Runner(model, config=config)
+
+    if remote_inputs:
+        import threading
+
+        def snapshot_loop(runner):
+            while True:
+                runner.take_snapshot()
+
+        t = threading.Thread(target=snapshot_loop, args=(runner,), daemon=True)
+        t.start()
+
     runner.run()
 
 
