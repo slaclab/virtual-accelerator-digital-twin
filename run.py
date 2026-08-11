@@ -94,7 +94,7 @@ def main():
                     try:
                         val = runner.pvua_context.get(pv, timeout=1)
                         if val is not None:
-                            new_values[var_name] = {"value": val, "ts": time.monotonic()}
+                            new_values[var_name] = {"value": val, "ts": time.time()}
                     except Exception as e:
                         log.warning(f"Failed to get {pv}: {e}")
                 log.info(f"Fetched {len(new_values)} inputs, running model...")
