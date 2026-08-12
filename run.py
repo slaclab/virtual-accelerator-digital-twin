@@ -78,6 +78,10 @@ def main():
 
     config["remote_model_mode"] = "snapshot"
 
+    # track_type is an internal model variable, not a remote PV
+    if "track_type" in config["variables"]:
+        config["variables"]["track_type"]["mode"] = "rw"
+
     runner = Runner(model, config=config)
 
     if remote_inputs:
