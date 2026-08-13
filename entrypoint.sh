@@ -36,6 +36,10 @@ if [ -n "${EPICS_PVA_NAME_SERVERS:-}" ]; then
     echo "EPICS_PVA_NAME_SERVERS=$EPICS_PVA_NAME_SERVERS"
 fi
 
+# Set the path to epics base binaries 
+export EPICS_BASE="/opt/conda/epics/"
+export PATH="$EPICS_BASE/bin/linux-x86_64:$PATH"
+
 # Discover libca.so for pyepics
 _caget_path="$(command -v caget 2>/dev/null || true)"
 if [ -n "${_caget_path}" ]; then

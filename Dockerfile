@@ -64,7 +64,7 @@ RUN arch="$(dpkg --print-architecture)" \
     && conda config --system --add channels conda-forge \
     && conda config --system --set channel_priority strict \
     && conda install -y "python=${PYTHON_VERSION}" pip bmad pytao \
-    && conda install epics-base=7.0.9.0 pvxs=1.5.2 \
+    && conda install epics-base pvxs=1.5.2 \
     && patchelf --clear-execstack /opt/conda/lib/libtao.so \
     && conda clean -afy
 
@@ -94,6 +94,7 @@ COPY entrypoint.sh .
 COPY scripts/ ./scripts/
 
 ENV PVA_PORT=5075
+
 
 EXPOSE 5075/tcp
 
