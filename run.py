@@ -66,14 +66,14 @@ def main():
     if (pv_suffix_ml or pv_suffix_ph) and hasattr(model, 'lume_model_instances'):
         ml_vars = set(model.lume_model_instances[0].supported_variables)
         for k, v in config['variables'].items():
-            if v['mode'] in ['ro', 'rw']:
+            if v['mode'] == 'ro':
                 if k in ml_vars:
                     v['pv'] = v['pv'] + pv_suffix_ml
                 else:
                     v['pv'] = v['pv'] + pv_suffix_ph
     elif pv_suffix:
         for k, v in config['variables'].items():
-            if v['mode'] in ['ro', 'rw']:
+            if v['mode'] == 'ro':
                 v['pv'] = v['pv'] + pv_suffix
 
     config["remote_model_mode"] = "snapshot"
