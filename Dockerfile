@@ -7,6 +7,34 @@ FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS runtime
 ARG PYTHON_VERSION
 ARG LCLS_LATTICE_REF
 
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        bash \
+        curl \
+        git \
+        ca-certificates \
+        vim \
+        tmux \
+        supervisor \
+        tzdata \
+        procps \
+        psmisc \
+        \
+        iproute2 \
+        iputils-ping \
+        net-tools \
+        netcat-traditional \
+        dnsutils \
+        traceroute \
+        tcpdump \
+        ethtool \
+        socat \
+        nmap \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set timezone to California (SLAC)
+ENV TZ=America/Los_Angeles
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -36,6 +64,7 @@ RUN arch="$(dpkg --print-architecture)" \
     && conda config --system --add channels conda-forge \
     && conda config --system --set channel_priority strict \
     && conda install -y "python=${PYTHON_VERSION}" pip bmad pytao \
+    && conda install epics-base=7.0.9.0 pvxs=1.5.2 \
     && patchelf --clear-execstack /opt/conda/lib/libtao.so \
     && conda clean -afy
 
@@ -47,7 +76,7 @@ RUN git clone https://github.com/slaclab/lcls-lattice.git /opt/lcls-lattice \
     && git checkout ${LCLS_LATTICE_REF}
 
 # Install Python packages
-RUN python -m pip install --upgrade setuptools wheel \
+RUN python -m pip install --upgrade setuptools wheel pyepics p4p\
     && python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cpu torch \
     && git clone https://github.com/slaclab/virtual-accelerator.git /opt/virtual-accelerator \
     && cd /opt/virtual-accelerator \

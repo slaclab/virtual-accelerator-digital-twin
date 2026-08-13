@@ -36,6 +36,15 @@ if [ -n "${EPICS_PVA_NAME_SERVERS:-}" ]; then
     echo "EPICS_PVA_NAME_SERVERS=$EPICS_PVA_NAME_SERVERS"
 fi
 
+# Discover libca.so for pyepics
+_caget_path="$(command -v caget 2>/dev/null || true)"
+if [ -n "${_caget_path}" ]; then
+    _epics_libca="$(ldd "${_caget_path}" 2>/dev/null | awk '/libca\.so/ {print $3; exit}')"
+    if [ -n "${_epics_libca}" ] && [ -f "${_epics_libca}" ]; then
+        export PYEPICS_LIBCA="${_epics_libca}"
+    fi
+fi
+
 echo "PVA server listening on port: $PORT (tcp), broadcast: $((PORT + 1)) (udp)"
 
 exec python run.py
