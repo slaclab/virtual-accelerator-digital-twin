@@ -78,9 +78,12 @@ def main():
 
     config["remote_model_mode"] = "snapshot"
 
-    # track_type is an internal model variable, not a remote PV
-    if "track_type" in config["variables"]:
-        config["variables"]["track_type"]["mode"] = "rw"
+    # Exclude variables that shouldn't be read remotely:
+    # - track_type: internal model variable, not a real PV
+    # - :BDES: conflicts with :BCTRL for the same physical field (last-write-wins)
+    for k, v in config["variables"].items():
+        if k == "track_type" or k.endswith(":BDES"):
+            v["mode"] = "rw"
 
     runner = Runner(model, config=config)
 
