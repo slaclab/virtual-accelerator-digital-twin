@@ -78,6 +78,9 @@ def main():
 
     config["remote_model_mode"] = "snapshot"
 
+    # Remove variables that aren't real PVs
+    config["variables"].pop("name", None)
+
     # Exclude variables that shouldn't be read remotely:
     # - track_type: internal model variable, not a real PV
     # - :BDES: conflicts with :BCTRL for the same physical field (last-write-wins)
@@ -88,11 +91,18 @@ def main():
     runner = Runner(model, config=config)
 
     if remote_inputs:
+        import gc
         import threading
+        import torch
 
         def snapshot_loop(runner):
-            while True:
-                runner.take_snapshot()
+            cycle = 0
+            with torch.no_grad():
+                while True:
+                    runner.take_snapshot()
+                    cycle += 1
+                    if cycle % 50 == 0:
+                        gc.collect()
 
         t = threading.Thread(target=snapshot_loop, args=(runner,), daemon=True)
         t.start()

@@ -1,200 +1,143 @@
 # Virtual Accelerator Digital Twin
 
-Containerized deployment of the LCLS CU HXR virtual accelerator as an EPICS PVAccess server.
+Containerized deployment of the LCLS virtual accelerator as an EPICS PVAccess server. Reads live machine settings, runs a staged physics model (ML surrogate + Bmad), and serves predicted beam parameters in real time.
 
-Runs the Bmad/Tao physics model (OTR2 → OTR4) and serves live PVs via `lume-pva`.
+## Quick Start
 
-## Running on dev-srv09
-
-### Terminal 1 — Start instance A
-
-```bash
-git clone https://github.com/slaclab/virtual-accelerator-digital-twin.git
-cd virtual-accelerator-digital-twin/scripts
-./launch.sh --runtime apptainer --image /sdf/group/cds/sw/epics/users/gopikab/va-dt/virtual-accelerator.sif
-```
-
-Wait until the PVA server starts up (you will see some WARNINGs — that's normal).
-The script will print something like:
-
-```
-==> Free port found: 5077
-
-To connect from another terminal:
-  source scripts/epics_env.sh 5077
-```
-
-Note the port number.
-
-### Terminal 2 — Start instance B (port isolation)
-
-```bash
-cd virtual-accelerator-digital-twin/scripts
-./launch.sh --runtime apptainer --image /sdf/group/cds/sw/epics/users/gopikab/va-dt/virtual-accelerator.sif
-```
-
-This will automatically pick a different free port (e.g. 5079).
-
-### Terminal 3 — Query PVs
-
-```bash
-cd virtual-accelerator-digital-twin
-source scripts/epics_env.sh 5077
-pvget BPMS:IN20:581:TMIT
-```
-
-To switch to instance B, re-source with its port:
-
-```bash
-source scripts/epics_env.sh 5079
-pvget BPMS:IN20:581:TMIT
-```
-
-## Docker (local development)
-
-### Build
+### Docker (local development)
 
 ```bash
 docker build -t va-digital-twin .
+docker run --rm -p 5075:5075 va-digital-twin
 ```
 
-### Run (auto-selects a free port)
-
+Query PVs:
 ```bash
-./scripts/launch.sh
+EPICS_PVA_NAME_SERVERS="127.0.0.1:5075" pvget BPMS:IN20:581:TMIT
 ```
 
-Then in a second terminal:
-
-```bash
-source scripts/epics_env.sh <port>   # use the port printed by launch.sh
-pvget BPMS:IN20:581:TMIT
-```
-
-### Run on a specific port
-
-```bash
-docker run --rm -p 5175:5175 va-digital-twin 5175
-```
-
-### Override model parameters
-
-```bash
-docker run --rm \
-  -e MODEL=cu_hxr_bmad \
-  -e END_ELEMENT=OTR4 \
-  -e N_PARTICLES=10000 \
-  -e LOG_LEVEL=DEBUG \
-  va-digital-twin
-```
-
-## Kubernetes Deployment (Digital Twin)
-
-The `kubernetes/` directory uses kustomize with a shared base and per-model overlays.
-
-### Deploy the CU HXR staged Digital Twin
+### Kubernetes (Digital Twin with live inputs)
 
 ```bash
 kubectl apply -k kubernetes/overlays/cu-hxr-staged/
 ```
 
-This creates:
-- Namespace `virtual-accelerator`
-- ConfigMap with DT-specific parameters (`REMOTE_INPUTS=true`, differentiated PV suffixes)
-- Single-replica Deployment with `hostNetwork: true` (for EPICS accessibility)
-- Service exposing PVAccess ports (5075/tcp, 5076/udp)
+Verify:
+```bash
+kubectl exec <pod> -- env EPICS_PVA_NAME_SERVERS="127.0.0.1:5075" \
+  pvget OTRS:IN20:571:XRMS_CU_HXR_LUME_ML_DT
+```
 
-The DT reads live inputs from production EPICS and writes model outputs with differentiated suffixes (`_CU_HXR_LUME_ML_DT` for ML, `_CU_HXR_LUME_PH_DT` for physics).
+## Supported Models
 
-### Verify from lcls-srv02
+| Model | Description | Command |
+|-------|-------------|---------|
+| `cu_hxr_bmad` | CU HXR physics only (Bmad, OTR2→end) | `MODEL=cu_hxr_bmad` |
+| `cu_hxr_staged` | CU HXR staged (ML injector + Bmad) | `MODEL=cu_hxr_staged` |
+| `facet_bmad` | FACET-II physics only | `MODEL=facet_bmad` |
+| `facet_staged` | FACET-II staged (ML + Bmad) | `MODEL=facet_staged` |
+
+## Deploying a New Model
+
+The image is model-agnostic. No rebuild needed — just create a Kubernetes overlay:
 
 ```bash
-export EPICS_PVA_ADDR_LIST="<node-ip>"
-export EPICS_PVA_AUTO_ADDR_LIST=NO
-pvget BPMS:IN20:581:TMIT_CU_HXR_LUME_PH_DT
-pvget OTRS:IN20:571:XRMS_CU_HXR_LUME_ML_DT
+mkdir -p kubernetes/overlays/<model-name>
 ```
 
-### Directory structure
+Create `kustomization.yaml` with model-specific env vars (see `kubernetes/overlays/cu-hxr-staged/` as a template), then:
 
-```
-kubernetes/
-  base/                         # Shared deployment template
-  overlays/
-    cu-hxr-staged/              # CU HXR staged model (prod DT)
-    facet-staged/               # (future) FACET staged model
+```bash
+kubectl apply -k kubernetes/overlays/<model-name>
 ```
 
-### Adding a new model
-
-Copy `kubernetes/overlays/cu-hxr-staged/` and change `MODEL` in the kustomization literals.
-
-### Environment variables for DT mode
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `REMOTE_INPUTS` | `false` | Read inputs from prod EPICS instead of serving them |
-| `PV_SUFFIX` | (none) | Suffix appended to all served PV names (e.g. `_LUME`). Used when a single suffix is desired for all outputs. |
-| `PV_SUFFIX_ML` | (none) | Suffix for ML model outputs in staged models (e.g. `_CU_HXR_LUME_ML_DT`) |
-| `PV_SUFFIX_PH` | (none) | Suffix for physics (Bmad) model outputs in staged models (e.g. `_CU_HXR_LUME_PH_DT`) |
-| `PV_RENAMES` | (none) | JSON dict of PV name renames applied before suffix (e.g. `{"sigma_z":"OTRS:IN20:571:ZRMS"}`) |
-
-These are in addition to the standard `MODEL`, `END_ELEMENT`, `N_PARTICLES`, `LOG_LEVEL` variables.
-
-### PV naming convention (staged models)
-
-For staged models that combine an ML surrogate with a physics (Bmad) simulation, output PV names are differentiated by source:
-
-- **ML outputs** → `<PV>_CU_HXR_LUME_ML_DT`
-- **Physics outputs** → `<PV>_CU_HXR_LUME_PH_DT`
-
-The naming convention is: `<PV>_<BEAMLINE>_LUME_<MODEL_TYPE>_DT`
-
-| Component | Meaning |
-|-----------|---------|
-| `CU_HXR` | Beamline (copper linac, hard X-ray) |
-| `LUME` | Project identifier |
-| `ML` / `PH` | Model type (ML surrogate or physics/Bmad) |
-| `DT` | Digital Twin |
-
-Additionally, some ML outputs have their base PV names remapped via `PV_RENAMES` to follow EPICS naming conventions:
-
-| Internal name | Served PV (before suffix) |
-|---------------|---------------------------|
-| `sigma_z` | `OTRS:IN20:571:ZRMS` |
-| `norm_emit_x` | `OTRS:IN20:571:EMITN_X` |
-| `norm_emit_y` | `OTRS:IN20:571:EMITN_Y` |
-
-When `PV_SUFFIX_ML`/`PV_SUFFIX_PH` are set, they take precedence over `PV_SUFFIX`. The source of each output is determined by checking `model.lume_model_instances[0].supported_variables` (ML sub-model).
-
-### Legacy VA deployment example
-
-The previous standalone VA deployment files are preserved in `examples/kubernetes-va/` for reference.
-
-## Server Deployment (Apptainer)
-
-For full details on image updates, automation, and CI — see [`docs/server-deployment.md`](docs/server-deployment.md).
-
-## CI/CD
-
-On push to `main`, GitHub Actions **builds, smoke-tests, and pushes** to:
-```
-ghcr.io/<org>/virtual-accelerator-digital-twin:latest
-```
-A build whose smoke test fails is never published. See `scripts/smoke_test.py`.
+See [AGENTS.md](AGENTS.md) for full deployment steps and naming conventions.
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────┐
-│  Container                               │
-│                                          │
-│  run.py                                  │
-│    └─ virtual_accelerator.models.runners │
-│         └─ cu_hxr_bmad model (Tao/Bmad)  │
-│              └─ lume-pva Runner           │
-│                   └─ EPICS PVAccess       │
-└──────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Kubernetes Pod                                              │
+│                                                              │
+│  Snapshot Loop (every ~20s):                                 │
+│    Read live inputs (PVA/CA via proxy)                       │
+│      → Run staged model (ML surrogate + Bmad physics)       │
+│        → Serve output PVs (PVAccess on port 5075)           │
+│                                                              │
+│  Inputs: :BCTRL and :PDES only (not :BDES)                  │
+│  Outputs: suffixed _CU_HXR_LUME_ML_DT / _PH_DT             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-The container initializes a Bmad lattice simulation using PyTao, then serves all beamline PVs (magnet settings, beam parameters) over EPICS PVAccess protocol. Clients can read/write PVs using standard EPICS tools (`pvget`, `pvput`, `p4p`).
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MODEL` | `cu_hxr_bmad` | Model to run |
+| `END_ELEMENT` | `OTR4` | Lattice end element |
+| `N_PARTICLES` | `10000` | Particles for beam simulation |
+| `REMOTE_INPUTS` | `false` | Read live inputs from accelerator |
+| `PV_SUFFIX_ML` | (none) | Suffix for ML outputs (e.g. `_CU_HXR_LUME_ML_DT`) |
+| `PV_SUFFIX_PH` | (none) | Suffix for physics outputs (e.g. `_CU_HXR_LUME_PH_DT`) |
+| `PV_SUFFIX` | (none) | Single suffix for all outputs (if not using ML/PH split) |
+| `PV_RENAMES` | `{}` | JSON dict of output PV name remapping |
+| `LOG_LEVEL` | `INFO` | Logging level |
+
+## PV Naming Convention
+
+Output PVs follow: `<PV>_<BEAMLINE>_LUME_<MODEL_TYPE>_DT`
+
+- `CU_HXR` — beamline
+- `LUME` — project identifier  
+- `ML` / `PH` — model type (ML surrogate or physics)
+- `DT` — Digital Twin
+
+Example: `OTRS:IN20:571:XRMS_CU_HXR_LUME_ML_DT`
+
+## Input Filtering
+
+Only `:BCTRL` and `:PDES` PVs are read from the live machine. `:BDES` is excluded to avoid conflicting writes to the same physical magnet field.
+
+## Validation
+
+Scripts for comparing DT outputs against a local model run:
+
+```bash
+# Capture from pod
+kubectl exec <pod> -- python scripts/capture_dt.py --duration 60
+kubectl cp <pod>:/tmp/dt_capture.json ./dt_capture.json
+
+# Validate on dev server
+python scripts/validate_dt.py dt_capture.json
+```
+
+## CI/CD
+
+On push to `main`, GitHub Actions builds, smoke-tests, and pushes to:
+```
+ghcr.io/<org>/virtual-accelerator-digital-twin:latest
+```
+
+Manual trigger with "no-cache" option available for forcing fresh dependency installs.
+
+## Directory Structure
+
+```
+├── run.py                          # Container entry point
+├── entrypoint.sh                   # EPICS env setup + launch
+├── Dockerfile                      # Image definition
+├── scripts/
+│   ├── smoke_test.py               # CI smoke test
+│   ├── capture_dt.py               # Capture DT inputs/outputs
+│   └── validate_dt.py              # Validate against local model
+├── kubernetes/
+│   ├── base/                       # Shared deployment template
+│   └── overlays/
+│       └── cu-hxr-staged/          # CU HXR staged model (prod)
+└── .github/workflows/
+    └── build-container.yml         # CI/CD pipeline
+```
+
+## Development Notes
+
+See [AGENTS.md](AGENTS.md) for full development history, design decisions, issues encountered, and operational knowledge.
