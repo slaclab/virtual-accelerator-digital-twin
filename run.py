@@ -62,24 +62,24 @@ def main():
         if v['pv'] in pv_renames:
             v['pv'] = pv_renames[v['pv']]
 
+    # Internal model variables that aren't real PVs — skip suffix
+    skip_suffix = {"name"}
+
     # Apply differentiated suffixes for staged models (ML vs physics)
     if (pv_suffix_ml or pv_suffix_ph) and hasattr(model, 'lume_model_instances'):
         ml_vars = set(model.lume_model_instances[0].supported_variables)
         for k, v in config['variables'].items():
-            if v['mode'] == 'ro':
+            if v['mode'] == 'ro' and k not in skip_suffix:
                 if k in ml_vars:
                     v['pv'] = v['pv'] + pv_suffix_ml
                 else:
                     v['pv'] = v['pv'] + pv_suffix_ph
     elif pv_suffix:
         for k, v in config['variables'].items():
-            if v['mode'] == 'ro':
+            if v['mode'] == 'ro' and k not in skip_suffix:
                 v['pv'] = v['pv'] + pv_suffix
 
     config["remote_model_mode"] = "snapshot"
-
-    # Remove variables that aren't real PVs
-    config["variables"].pop("name", None)
 
     # Exclude variables that shouldn't be read remotely:
     # - track_type: internal model variable, not a real PV
