@@ -91,9 +91,12 @@ def main():
     runner = Runner(model, config=config)
 
     if remote_inputs:
+        import ctypes
         import gc
         import threading
         import torch
+
+        _libc = ctypes.CDLL("libc.so.6")
 
         def snapshot_loop(runner):
             cycle = 0
@@ -103,6 +106,7 @@ def main():
                     cycle += 1
                     if cycle % 50 == 0:
                         gc.collect()
+                        _libc.malloc_trim(0)
 
         t = threading.Thread(target=snapshot_loop, args=(runner,), daemon=True)
         t.start()
