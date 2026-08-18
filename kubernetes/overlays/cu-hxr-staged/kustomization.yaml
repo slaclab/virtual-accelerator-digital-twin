@@ -28,3 +28,7 @@ configMapGenerator:
       - EPICS_CA_AUTO_ADDR_LIST=NO
       - EPICS_CA_ADDR_LIST=
       - EPICS_CA_NAME_SERVERS=epics-proxy.epics-socat-proxy:5065
+      - PYEPICS_LIBCA=/opt/conda/lib/libca.so
+      - MALLOC_ARENA_MAX=1
+      - MALLOC_MMAP_THRESHOLD_=131072
+      - MEM_LOG_INTERVAL_S=300
