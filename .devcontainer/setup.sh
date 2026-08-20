@@ -1,8 +1,13 @@
 #!/bin/bash
 # Runs once after container creation (postCreateCommand).
-# Test deps are already installed in the devcontainer image stage.
-# This script just verifies the environment is complete.
+# Installs test/dev deps from pyproject.toml then verifies the environment.
 set -e
+
+echo "[devcontainer] Installing test dependencies..."
+pip install -e "/workspace[test]" \
+    --quiet \
+    --root-user-action=ignore \
+    --no-warn-script-location
 
 echo "[devcontainer] Verifying environment..."
 
