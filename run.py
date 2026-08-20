@@ -179,9 +179,9 @@ def main():
         import threading
         import torch
 
-        _libc = ctypes.CDLL("libc.so.6"
+        _libc = ctypes.CDLL("libc.so.6")
 
-        import time as _time 
+        import time as _time
 
         # Throttle to the runner's update_rate so the queue never backlogs.
         # Without a sleep, take_snapshot() runs as fast as network allows (~40 Hz),
