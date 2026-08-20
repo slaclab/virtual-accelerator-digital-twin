@@ -1,14 +1,9 @@
 services:
 
   # ── Development environment ──────────────────────────────────────────
-  # Full VA image with lattice files, pytao, torch, p4p — used as the
-  # VSCode devcontainer. run.py is volume-mounted so edits are live.
+  # Uses the pre-built local image — no Docker Hub pull needed.
+  # run.py and scripts/ are volume-mounted so edits are live without rebuild.
   devenv:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      args:
-        DOCKER_PLATFORM: linux/amd64
     image: va-digital-twin:local
     container_name: va-devenv
     volumes:
@@ -38,17 +33,14 @@ services:
       - mock-ioc
 
   # ── Mock CA/PVA IOC ───────────────────────────────────────────────────
-  # Serves the 16 real input PVs with realistic design-value noise.
-  # pvua auto-discovers: tries PVA first, falls back to CA.
+  # Serves the 16 real snapshot PVs with LCLS design-value nominals + noise.
+  # pvua auto-discovers protocol (PVA first, CA fallback).
   mock-ioc:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      args:
-        DOCKER_PLATFORM: linux/amd64
     image: va-digital-twin:local
     container_name: mock-ioc
-    command: ["python", "scripts/mock_ca_ioc.py"]
+    command: ["python", "/workspace/scripts/mock_ca_ioc.py"]
+    volumes:
+      - ..:/workspace:cached
     environment:
       UPDATE_RATE_HZ: "1"
       NOISE_SIGMA_PCT: "0.1"
