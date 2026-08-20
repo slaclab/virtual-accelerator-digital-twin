@@ -192,9 +192,16 @@ def _rss_mb() -> float:
     return rss / (1024 * 1024) if sys.platform == "darwin" else rss / 1024
 
 
-def _py_heap_mb() -> float:
+def _py_heap_mb(top_n: int = 0) -> float:
     snap = tracemalloc.take_snapshot()
-    return sum(s.size for s in snap.statistics("lineno")) / 1024 / 1024
+    stats = snap.statistics("lineno")
+    total = sum(s.size for s in stats) / 1024 / 1024
+    if top_n > 0:
+        print(f"# Top {top_n} Python allocations:", file=sys.stderr, flush=True)
+        for s in stats[:top_n]:
+            print(f"#   {s.size/1024:.1f} KB  {s.traceback.format()[0]}",
+                  file=sys.stderr, flush=True)
+    return total
 
 
 def _smaps_rollup() -> dict:
@@ -346,7 +353,7 @@ def main() -> int:
                 gc.collect()
                 elapsed = now - t_start
                 rss = _rss_mb()
-                py_heap = _py_heap_mb()
+                py_heap = _py_heap_mb(top_n=10)
                 smaps = _smaps_rollup()
                 ahp_kb = smaps.get("AnonHugePages", 0)
                 cps = total_cycles / elapsed if elapsed > 0 else 0
