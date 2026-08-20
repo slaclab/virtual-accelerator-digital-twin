@@ -119,19 +119,46 @@ def _load_real_model(model_name: str, end_element: str, n_particles: int):
 # Runner loop — mirrors lume_pva runner._run() allocation pattern
 # ---------------------------------------------------------------------------
 
+def _numeric_settable(model) -> list:
+    """Return writable variable names that hold numeric values (skip enums/strings)."""
+    result = []
+    probe = model.get(list(model.supported_variables.keys()))
+    for n, v in model.supported_variables.items():
+        if v.read_only:
+            continue
+        val = probe.get(n)
+        if val is None:
+            continue
+        try:
+            arr = np.asarray(val)
+            if np.issubdtype(arr.dtype, np.number):
+                result.append(n)
+        except Exception:
+            pass
+    return result
+
+
 def run_batch(model, n_cycles: int) -> None:
-    settable = [n for n, v in model.supported_variables.items() if not v.read_only]
+    settable = _numeric_settable(model)
     all_vars = list(model.supported_variables.keys())
     for _ in range(n_cycles):
         cached = model.get(settable)
-        current = model.get(settable)
-        new_values = {k: current[k] + np.random.randn(*np.asarray(current[k]).shape) * 0.001
-                      for k in settable}
+        new_values = {}
+        for k in settable:
+            try:
+                arr = np.asarray(cached[k])
+                new_values[k] = arr + np.random.randn(*arr.shape) * 0.001
+            except Exception:
+                pass
         model.set(new_values)
         out_values = model.get(all_vars)
         for v in out_values.values():
-            if hasattr(v, 'sum'):
-                _ = v.sum() if v.ndim > 0 else float(v)
+            try:
+                arr = np.asarray(v)
+                if np.issubdtype(arr.dtype, np.number):
+                    _ = arr.sum()
+            except Exception:
+                pass
         del cached, new_values, out_values
 
 
