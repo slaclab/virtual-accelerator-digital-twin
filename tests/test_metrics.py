@@ -18,6 +18,7 @@ REQUIRED_METRICS = [
     "va_thp_disabled",
     "va_runner_queue_size",
     "va_snapshot_cycles_total",
+    "va_snapshot_queue_wait_seconds",
     "va_gc_collects_total",
     "va_pv_posts_total",
 ]
