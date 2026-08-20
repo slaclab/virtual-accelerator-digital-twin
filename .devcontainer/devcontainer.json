@@ -44,9 +44,8 @@
 
   "postStartCommand": "echo 'source /workspace/scripts/dev_epics_env.sh  # configure pvget/pvput/caget/caput' >> /root/.bashrc",
 
-  "forwardPorts": [5075, 9090],
+  "forwardPorts": [9090],
   "portsAttributes": {
-    "5075": {"label": "PVA outputs"},
     "9090": {"label": "Prometheus metrics"}
   },
 

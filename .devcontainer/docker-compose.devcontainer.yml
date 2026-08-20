@@ -27,7 +27,6 @@ services:
       MALLOC_ARENA_MAX: "1"
       MALLOC_MMAP_THRESHOLD_: "131072"
     ports:
-      - "5075:5075/tcp"
       - "9090:9090/tcp"
     depends_on:
       - mock-ioc
