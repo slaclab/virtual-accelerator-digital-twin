@@ -5,6 +5,7 @@
       "name": "Run VA (cu_hxr_bmad)",
       "type": "debugpy",
       "request": "launch",
+      "python": "/opt/conda/bin/python",
       "program": "${workspaceFolder}/run.py",
       "console": "integratedTerminal",
       "env": {
@@ -25,6 +26,7 @@
       "name": "Run VA (cu_hxr_staged, remote inputs)",
       "type": "debugpy",
       "request": "launch",
+      "python": "/opt/conda/bin/python",
       "program": "${workspaceFolder}/run.py",
       "console": "integratedTerminal",
       "env": {
@@ -46,6 +48,7 @@
       "name": "Memory leak test (FakeModel)",
       "type": "debugpy",
       "request": "launch",
+      "python": "/opt/conda/bin/python",
       "program": "${workspaceFolder}/scripts/model_loop_memtest.py",
       "console": "integratedTerminal",
       "args": ["--duration", "3600", "--log-interval", "60"]
