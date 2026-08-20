@@ -3,7 +3,8 @@ ARG LCLS_LATTICE_REF=c6b8defbf2ba83bf8f5af70191c893de361657d1
 ARG VIRTUAL_ACCELERATOR_REF=fbd2f392809b59280bcb97da76ab11c0438dd915
 ARG DOCKER_PLATFORM=linux/amd64
 
-FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS runtime
+# ── base: all deps, no app files ─────────────────────────────────────────────
+FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS base
 ARG PYTHON_VERSION
 ARG LCLS_LATTICE_REF
 
@@ -19,7 +20,6 @@ RUN apt-get update && \
         tzdata \
         procps \
         psmisc \
-        \
         iproute2 \
         iputils-ping \
         net-tools \
@@ -32,7 +32,6 @@ RUN apt-get update && \
         nmap \
     && rm -rf /var/lib/apt/lists/*
 
-# Set timezone to California (SLAC)
 ENV TZ=America/Los_Angeles
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -52,7 +51,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends bash bzip2 curl git patchelf \
     && rm -rf /var/lib/apt/lists/*
 
-# Install miniforge + conda packages (pytao requires bmad shared library)
 RUN arch="$(dpkg --print-architecture)" \
     && case "${arch}" in \
         amd64) conda_arch="x86_64" ;; \
@@ -71,12 +69,10 @@ RUN arch="$(dpkg --print-architecture)" \
 
 WORKDIR /app
 
-# Clone lcls-lattice at pinned commit
 RUN git clone https://github.com/slaclab/lcls-lattice.git /opt/lcls-lattice \
     && cd /opt/lcls-lattice \
     && git checkout ${LCLS_LATTICE_REF}
 
-# Install Python packages
 RUN python -m pip install --upgrade setuptools wheel pyepics p4p prometheus-client \
     && python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cpu torch \
     && git clone https://github.com/slaclab/virtual-accelerator.git /opt/virtual-accelerator \
@@ -88,23 +84,15 @@ RUN python -m pip install --upgrade setuptools wheel pyepics p4p prometheus-clie
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git" \
         "lume-pva @ git+https://github.com/lume-science/lume-pva.git"
 
-COPY run.py .
-COPY entrypoint.sh .
-# scripts/ ships smoke_test.py and epics_env.sh so the image can self-verify
-# (CI gate, apptainer, k8s test-pod) and clients can configure their environment.
-COPY scripts/ ./scripts/
-
 ENV PVA_PORT=5075
-
 EXPOSE 5075/tcp
 EXPOSE 9090/tcp
 
+# ── production: base + app files ─────────────────────────────────────────────
+FROM base AS production
+COPY run.py .
+COPY entrypoint.sh .
+COPY scripts/ ./scripts/
+
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["5075"]
-
-# ── devcontainer stage ────────────────────────────────────────────────────────
-# Extends runtime with test tooling. Used by .devcontainer/ only.
-# run.py, scripts/, tests/ are volume-mounted at /workspace — not baked in.
-FROM runtime AS devcontainer
-COPY pyproject.toml /app/
-RUN pip install -e ".[test]" --root-user-action=ignore --quiet

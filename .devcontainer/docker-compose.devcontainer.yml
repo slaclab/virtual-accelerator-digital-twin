@@ -7,10 +7,10 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-      target: devcontainer
+      target: base
       args:
         DOCKER_PLATFORM: linux/amd64
-    image: va-digital-twin:devcontainer
+    image: va-digital-twin:base
     container_name: va-devenv
     volumes:
       - ..:/workspace:cached
@@ -41,13 +41,7 @@ services:
   # Serves the 16 real snapshot PVs with LCLS design-value nominals + noise.
   # pvua auto-discovers protocol (PVA first, CA fallback).
   mock-ioc:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      target: runtime
-      args:
-        DOCKER_PLATFORM: linux/amd64
-    image: va-digital-twin:local
+    image: va-digital-twin:base
     container_name: mock-ioc
     command: ["python", "/workspace/scripts/mock_ca_ioc.py"]
     volumes:
