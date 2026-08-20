@@ -179,17 +179,31 @@ def main():
         import threading
         import torch
 
-        _libc = ctypes.CDLL("libc.so.6")
+        _libc = ctypes.CDLL("libc.so.6"
+
+        import time as _time 
+
+        # Throttle to the runner's update_rate so the queue never backlogs.
+        # Without a sleep, take_snapshot() runs as fast as network allows (~40 Hz),
+        # flooding the queue with p4p Value objects faster than the runner consumes
+        # them. Each queued item holds a C++ PVStructure in p4p's heap — the
+        # resulting backlog accumulates 2+ GB over hours.
+        _snapshot_interval = runner.update_rate if runner.update_rate > 0 else 0.1
 
         def snapshot_loop(runner):
             cycle = 0
             with torch.no_grad():
                 while True:
+                    t0 = _time.monotonic()
                     runner.take_snapshot()
                     cycle += 1
                     if cycle % 50 == 0:
                         gc.collect()
                         _libc.malloc_trim(0)
+                    elapsed = _time.monotonic() - t0
+                    sleep = _snapshot_interval - elapsed
+                    if sleep > 0:
+                        _time.sleep(sleep)
 
         t = threading.Thread(target=snapshot_loop, args=(runner,), daemon=True)
         t.start()
