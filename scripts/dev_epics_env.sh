@@ -44,7 +44,7 @@ case "$MODE" in
   *)
     # Both mock-ioc inputs + VA outputs — UDP broadcast works on Docker bridge network
     export EPICS_PVA_AUTO_ADDR_LIST="NO"
-    export EPICS_PVA_NAME_SERVERS="mock-ioc:5076 127.0.0.1:5075"
+    export EPICS_PVA_NAME_SERVERS="mock-ioc:5076"
     unset EPICS_PVA_ADDR_LIST
     export EPICS_CA_AUTO_ADDR_LIST="NO"
     export EPICS_CA_ADDR_LIST="mock-ioc 127.0.0.1"
