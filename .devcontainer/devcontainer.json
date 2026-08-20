@@ -28,10 +28,12 @@
   "remoteEnv": {
     "LCLS_LATTICE": "/opt/lcls-lattice",
     "EPICS_PVA_AUTO_ADDR_LIST": "NO",
-    "EPICS_PVA_ADDR_LIST": "mock-ioc",
+    "EPICS_PVA_ADDR_LIST": "mock-ioc 127.0.0.1",
     "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    "EPICS_CA_ADDR_LIST": "mock-ioc",
+    "EPICS_CA_ADDR_LIST": "mock-ioc 127.0.0.1",
     "PYEPICS_LIBCA": "/opt/conda/epics/lib/linux-x86_64/libca.so",
+    "PATH": "/opt/conda/epics/bin/linux-x86_64:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "LD_LIBRARY_PATH": "/opt/conda/epics/lib/linux-x86_64",
     "MODEL": "cu_hxr_staged",
     "END_ELEMENT": "OTR4",
     "N_PARTICLES": "100",
@@ -39,6 +41,8 @@
     "METRICS_PORT": "9090",
     "MEM_LOG_INTERVAL_S": "60"
   },
+
+  "postStartCommand": "echo 'source /workspace/scripts/dev_epics_env.sh  # configure pvget/pvput/caget/caput' >> /root/.bashrc",
 
   "forwardPorts": [5075, 9090],
   "portsAttributes": {
