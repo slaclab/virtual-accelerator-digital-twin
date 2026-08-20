@@ -6,14 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "virtual-accelerator-digital-twin"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = [
-    "prometheus-client>=0.19",
-]
-
 [project.optional-dependencies]
 test = [
     "pytest>=7",
     "numpy",
+    "prometheus-client>=0.19",
 ]
 
 [tool.pytest.ini_options]
