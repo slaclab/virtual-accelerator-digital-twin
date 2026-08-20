@@ -37,6 +37,9 @@ spec:
             - containerPort: 5076
               protocol: UDP
               name: pva-udp
+            - containerPort: 9090
+              protocol: TCP
+              name: metrics
           startupProbe:
             exec:
               command: ["python", "-c", "import p4p; print('ok')"]
