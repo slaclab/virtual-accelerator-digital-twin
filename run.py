@@ -256,6 +256,14 @@ def main():
             with torch.no_grad():
                 while True:
                     t0 = _time.monotonic()
+
+                    # Wait for queue to drain before producing next item.
+                    # If consumer (model) is slower than producer (snapshot),
+                    # the queue backlog grows — each item holds a p4p.Value
+                    # (C++ PVStructure) that accumulates in the heap.
+                    while runner.queue.qsize() > 1:
+                        _time.sleep(0.01)
+
                     runner.take_snapshot()
                     cycle += 1
 

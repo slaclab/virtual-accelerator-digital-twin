@@ -242,14 +242,27 @@ def _build_snapshot_runner(model):
 
 
 def run_snapshot_batch(runner, n_cycles: int, interval_s: float = 0.1) -> None:
-    """Call runner.take_snapshot() n_cycles times with throttling and periodic GC."""
+    """Call runner.take_snapshot() n_cycles times.
+
+    Waits for the queue to drain before each snapshot so the consumer
+    never falls behind — prevents queue backlog (the Root Cause 2 leak).
+    """
     for i in range(n_cycles):
         t0 = time.monotonic()
+
+        # Wait for queue to drain before enqueuing next item
+        # This ensures producer rate <= consumer rate
+        while runner.queue.qsize() > 1:
+            time.sleep(0.01)
+
         runner.take_snapshot()
         elapsed = time.monotonic() - t0
+
+        # Still respect the minimum interval
         sleep = interval_s - elapsed
         if sleep > 0:
             time.sleep(sleep)
+
         if i > 0 and i % 50 == 0:
             gc.collect()
             _malloc_trim()
