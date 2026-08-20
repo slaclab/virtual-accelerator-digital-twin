@@ -2,26 +2,6 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run VA (cu_hxr_bmad)",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/run.py",
-      "console": "integratedTerminal",
-      "env": {
-        "MODEL": "cu_hxr_bmad",
-        "END_ELEMENT": "OTR4",
-        "N_PARTICLES": "100",
-        "LOG_LEVEL": "INFO",
-        "REMOTE_INPUTS": "false",
-        "METRICS_PORT": "9090",
-        "MEM_LOG_INTERVAL_S": "60",
-        "LCLS_LATTICE": "/opt/lcls-lattice",
-        "EPICS_PVA_AUTO_ADDR_LIST": "YES",
-        "MALLOC_ARENA_MAX": "1",
-        "MALLOC_MMAP_THRESHOLD_": "131072"
-      }
-    },
-    {
       "name": "Run VA (cu_hxr_staged, remote inputs)",
       "type": "debugpy",
       "request": "launch",
@@ -43,12 +23,52 @@
       }
     },
     {
-      "name": "Memory leak test (FakeModel)",
+      "name": "Memory leak test — model set/get (FakeModel)",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/scripts/model_loop_memtest.py",
       "console": "integratedTerminal",
       "args": ["--duration", "3600", "--log-interval", "60"]
+    },
+    {
+      "name": "Memory leak test — model set/get (real cu_hxr_staged)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/model_loop_memtest.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--model", "cu_hxr_staged",
+        "--end-element", "OTR4",
+        "--n-particles", "100",
+        "--duration", "3600",
+        "--log-interval", "60",
+        "--rss-limit", "500"
+      ],
+      "env": {
+        "LCLS_LATTICE": "/opt/lcls-lattice"
+      }
+    },
+    {
+      "name": "Memory leak test — take_snapshot (real model + mock-ioc)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/model_loop_memtest.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--snapshot-mode",
+        "--model", "cu_hxr_staged",
+        "--end-element", "OTR4",
+        "--n-particles", "100",
+        "--duration", "3600",
+        "--log-interval", "60",
+        "--snapshot-interval", "0.1",
+        "--rss-limit", "500"
+      ],
+      "env": {
+        "LCLS_LATTICE": "/opt/lcls-lattice",
+        "EPICS_PVA_AUTO_ADDR_LIST": "NO",
+        "EPICS_PVA_NAME_SERVERS": "mock-ioc:5076"
+      }
     }
   ]
 }
