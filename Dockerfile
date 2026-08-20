@@ -92,9 +92,10 @@ RUN python -m pip install --upgrade setuptools wheel pyepics p4p \
 
 COPY run.py .
 COPY entrypoint.sh .
-# scripts/ ships smoke_test.py and epics_env.sh so the image can self-verify
-# (CI gate, apptainer, k8s test-pod) and clients can configure their environment.
+COPY pyproject.toml .
+# scripts/ and tests/ ship with the image for self-verification and integration tests
 COPY scripts/ ./scripts/
+COPY tests/ ./tests/
 
 ENV PVA_PORT=5075
 
