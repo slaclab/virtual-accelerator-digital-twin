@@ -77,7 +77,7 @@ RUN git clone https://github.com/slaclab/lcls-lattice.git /opt/lcls-lattice \
     && git checkout ${LCLS_LATTICE_REF}
 
 # Install Python packages
-RUN python -m pip install --upgrade setuptools wheel pyepics p4p \
+RUN python -m pip install --upgrade setuptools wheel pyepics p4p prometheus-client \
     && python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cpu torch \
     && git clone https://github.com/slaclab/virtual-accelerator.git /opt/virtual-accelerator \
     && cd /opt/virtual-accelerator \
@@ -86,22 +86,25 @@ RUN python -m pip install --upgrade setuptools wheel pyepics p4p \
     && cd /app \
     && python -m pip install --force-reinstall --no-deps \
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git" \
-        "lume-pva @ git+https://github.com/lume-science/lume-pva.git" \
-        "lume-torch @ git+https://github.com/lume-science/lume-torch.git" \
-    && python -m pip install prometheus-client
+        "lume-pva @ git+https://github.com/lume-science/lume-pva.git"
 
 COPY run.py .
 COPY entrypoint.sh .
-COPY pyproject.toml .
-# scripts/ and tests/ ship with the image for self-verification and integration tests
+# scripts/ ships smoke_test.py and epics_env.sh so the image can self-verify
+# (CI gate, apptainer, k8s test-pod) and clients can configure their environment.
 COPY scripts/ ./scripts/
-COPY tests/ ./tests/
 
 ENV PVA_PORT=5075
-
 
 EXPOSE 5075/tcp
 EXPOSE 9090/tcp
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["5075"]
+
+# ── devcontainer stage ────────────────────────────────────────────────────────
+# Extends runtime with test tooling. Used by .devcontainer/ only.
+# run.py, scripts/, tests/ are volume-mounted at /workspace — not baked in.
+FROM runtime AS devcontainer
+COPY pyproject.toml /app/
+RUN pip install -e ".[test]" --root-user-action=ignore --quiet
