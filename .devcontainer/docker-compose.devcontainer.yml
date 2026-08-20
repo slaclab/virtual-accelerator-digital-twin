@@ -1,10 +1,15 @@
 services:
 
   # ── Development environment ──────────────────────────────────────────
-  # Uses the pre-built local image — no Docker Hub pull needed.
+  # Built from Dockerfile so all deps (including surrogate extras) are present.
   # run.py and scripts/ are volume-mounted so edits are live without rebuild.
   devenv:
-    image: va-digital-twin:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        DOCKER_PLATFORM: linux/amd64
+    image: va-digital-twin:devcontainer
     container_name: va-devenv
     volumes:
       - ..:/workspace:cached
@@ -35,7 +40,7 @@ services:
   # Serves the 16 real snapshot PVs with LCLS design-value nominals + noise.
   # pvua auto-discovers protocol (PVA first, CA fallback).
   mock-ioc:
-    image: va-digital-twin:local
+    image: va-digital-twin:devcontainer
     container_name: mock-ioc
     command: ["python", "/workspace/scripts/mock_ca_ioc.py"]
     volumes:
