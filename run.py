@@ -44,6 +44,9 @@ _VA_SNAP_CYCLES     = Counter("va_snapshot_cycles",      "Total take_snapshot() 
 _VA_SNAP_DURATION   = Histogram("va_snapshot_duration_seconds",
                                 "Time per take_snapshot() call",
                                 buckets=[.005, .01, .025, .05, .1, .25, .5, 1.0])
+_VA_SNAP_WAIT       = Histogram("va_snapshot_queue_wait_seconds",
+                                "Time waiting for queue to drain before take_snapshot()",
+                                buckets=[0, .001, .005, .01, .05, .1, .5, 1.0, 5.0])
 _VA_GC_COLLECT      = Counter("va_gc_collects",          "GC+malloc_trim invocations")
 
 _VA_PV_POSTS        = Counter("va_pv_posts",             "SharedPV post() calls", ["pv"])
@@ -261,8 +264,11 @@ def main():
                     # If consumer (model) is slower than producer (snapshot),
                     # the queue backlog grows — each item holds a p4p.Value
                     # (C++ PVStructure) that accumulates in the heap.
+                    _wait_t0 = _time.monotonic()
                     while runner.queue.qsize() > 1:
                         _time.sleep(0.01)
+                    _VA_SNAP_WAIT.observe(_time.monotonic() - _wait_t0)
+                    _VA_QUEUE_SIZE.set(runner.queue.qsize())
 
                     runner.take_snapshot()
                     cycle += 1
