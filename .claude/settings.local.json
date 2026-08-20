@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import lume_pva; print\\(lume_pva.__file__\\)\")",
+      "Bash(python3 -c \"import pytao; print\\(pytao.__file__\\)\")",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(pip show *)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh api *)",
+      "Bash(gh search *)",
+      "Bash(xargs -I{} gh api \"repos/slaclab/virtual-accelerator/git/trees/{}\" --jq '.tree[] | .path')",
+      "Bash(kubectl get *)",
+      "Bash(kubectl config get-contexts *)",
+      "Bash(kubectl top *)",
+      "Bash(kubectl describe *)",
+      "Bash(kubectl logs *)",
+      "Bash(kubectl exec *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git commit *)",
+      "Bash(python3 -m py_compile run.py)",
+      "Bash(kubectl apply *)",
+      "Bash(python -m pytest tests/ -v -m \"not integration\" --tb=short)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(docker exec *)",
+      "Bash(docker restart *)"
+    ]
+  }
+}
