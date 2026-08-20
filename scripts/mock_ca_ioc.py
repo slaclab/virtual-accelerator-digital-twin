@@ -54,8 +54,9 @@ INPUT_PVS = [
 
 
 def _start_pva_server(pvs: list) -> None:
-    """Serve all PVs via PVA using p4p SharedPV on a fixed port."""
-    pva_port = int(os.environ.get("MOCK_PVA_PORT", "5076"))
+    """Serve all PVs via PVA using p4p SharedPV.
+    Port is set via EPICS_PVA_SERVER_PORT env var (pvxs reads at C++ init time)."""
+    pva_port = int(os.environ.get("EPICS_PVA_SERVER_PORT", "5076"))
     providers = {}
     pv_objects = {}
 

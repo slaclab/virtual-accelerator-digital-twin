@@ -34,7 +34,7 @@ case "$MODE" in
     # Mock IOC input PVs — use name server for TCP-based discovery
     export EPICS_PVA_AUTO_ADDR_LIST="NO"
     export EPICS_PVA_ADDR_LIST=""
-    export EPICS_PVA_NAME_SERVERS="mock-ioc:5075"  # pvxs TCP6 port
+    export EPICS_PVA_NAME_SERVERS="mock-ioc:5076"  # pvxs TCP6 port (EPICS_PVA_SERVER_PORT)
     export EPICS_CA_AUTO_ADDR_LIST="NO"
     export EPICS_CA_ADDR_LIST="mock-ioc"
     echo "EPICS → mock-ioc inputs (name server: mock-ioc:5075)"
@@ -44,7 +44,7 @@ case "$MODE" in
   *)
     # Both mock-ioc inputs + VA outputs — UDP broadcast works on Docker bridge network
     export EPICS_PVA_AUTO_ADDR_LIST="NO"
-    export EPICS_PVA_NAME_SERVERS="mock-ioc:5075 127.0.0.1:5075"
+    export EPICS_PVA_NAME_SERVERS="mock-ioc:5076 127.0.0.1:5075"
     unset EPICS_PVA_ADDR_LIST
     export EPICS_CA_AUTO_ADDR_LIST="NO"
     export EPICS_CA_ADDR_LIST="mock-ioc 127.0.0.1"
