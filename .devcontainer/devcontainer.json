@@ -42,6 +42,7 @@
     "MEM_LOG_INTERVAL_S": "60"
   },
 
+  "postCreateCommand": "pip install -e '.[test]' --quiet --root-user-action=ignore",
   "postStartCommand": "printf '#!/bin/bash\\nsource /workspace/scripts/dev_epics_env.sh > /dev/null 2>&1\\npython -m p4p.client.cli get \"$@\"\\n' > /usr/local/bin/pvget && printf '#!/bin/bash\\nsource /workspace/scripts/dev_epics_env.sh > /dev/null 2>&1\\npython -m p4p.client.cli put \"$@\"\\n' > /usr/local/bin/pvput && printf '#!/bin/bash\\nsource /workspace/scripts/dev_epics_env.sh > /dev/null 2>&1\\npython -m p4p.client.cli monitor \"$@\"\\n' > /usr/local/bin/pvmon && chmod +x /usr/local/bin/pvget /usr/local/bin/pvput /usr/local/bin/pvmon && echo 'pvget/pvput/pvmon ready'",
 
   "forwardPorts": [9090],
