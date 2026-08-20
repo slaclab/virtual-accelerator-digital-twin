@@ -1,0 +1,57 @@
+{
+  "name": "Virtual Accelerator Digital Twin",
+  "dockerComposeFile": "docker-compose.devcontainer.yml",
+  "service": "devenv",
+  "workspaceFolder": "/workspace",
+
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pylance",
+        "ms-python.debugpy",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/conda/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["-m", "not integration"],
+        "python.testing.cwd": "/workspace",
+        "editor.formatOnSave": true,
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+
+  "remoteEnv": {
+    "LCLS_LATTICE": "/opt/lcls-lattice",
+    "EPICS_PVA_AUTO_ADDR_LIST": "NO",
+    "EPICS_PVA_ADDR_LIST": "mock-ioc",
+    "EPICS_CA_AUTO_ADDR_LIST": "NO",
+    "EPICS_CA_ADDR_LIST": "mock-ioc",
+    "PYEPICS_LIBCA": "/opt/conda/epics/lib/linux-x86_64/libca.so",
+    "MODEL": "cu_hxr_staged",
+    "END_ELEMENT": "OTR4",
+    "N_PARTICLES": "100",
+    "REMOTE_INPUTS": "true",
+    "METRICS_PORT": "9090",
+    "MEM_LOG_INTERVAL_S": "60"
+  },
+
+  "forwardPorts": [5075, 9090],
+  "portsAttributes": {
+    "5075": {"label": "PVA server"},
+    "9090": {"label": "Prometheus metrics"}
+  },
+
+  "postCreateCommand": "pip install -e '.[test]' --quiet",
+  "postStartCommand": "echo 'Mock IOC at mock-ioc | VA outputs at localhost:5075 | Metrics at localhost:9090'",
+
+  "remoteUser": "root"
+}
