@@ -30,6 +30,7 @@ Environment variables:
 """
 
 import argparse
+import ctypes
 import gc
 import os
 import resource
@@ -38,6 +39,26 @@ import time
 import tracemalloc
 
 import numpy as np
+
+
+def _disable_thp() -> None:
+    """Disable THP for this process — same as run.py."""
+    PR_SET_THP_DISABLE = 41
+    try:
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        rc = libc.prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0)
+        after = libc.prctl(42, 0, 0, 0, 0)
+        status = "disabled" if after == 1 else "STILL ENABLED"
+        print(f"[thp] THP {status} (rc={rc})", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"[thp] WARNING: {e}", file=sys.stderr, flush=True)
+
+
+def _malloc_trim() -> None:
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -207,14 +228,17 @@ def _build_snapshot_runner(model):
 
 
 def run_snapshot_batch(runner, n_cycles: int, interval_s: float = 0.1) -> None:
-    """Call runner.take_snapshot() n_cycles times with throttling."""
-    for _ in range(n_cycles):
+    """Call runner.take_snapshot() n_cycles times with throttling and periodic GC."""
+    for i in range(n_cycles):
         t0 = time.monotonic()
         runner.take_snapshot()
         elapsed = time.monotonic() - t0
         sleep = interval_s - elapsed
         if sleep > 0:
             time.sleep(sleep)
+        if i > 0 and i % 50 == 0:
+            gc.collect()
+            _malloc_trim()
 
 
 def parse_args():
@@ -241,6 +265,7 @@ def parse_args():
 
 
 def main() -> int:
+    _disable_thp()
     args = parse_args()
 
     # Try real model first
