@@ -20,7 +20,15 @@ import random
 import threading
 import time
 
+# Must be set before p4p/pvxs C++ library init — pvxs reads env at first import
+os.environ.setdefault("EPICS_PVA_AUTO_ADDR_LIST", "YES")
+
 LOG = logging.getLogger("mock_ca_ioc")
+
+# Import p4p at module level so pvxs reads env vars NOW (before any lazy import)
+from p4p.nt import NTScalar
+from p4p.server import Server
+from p4p.server.thread import SharedPV
 
 # 16 real snapshot PVs with design nominals and units.
 # Nominally congruent with LCLS injector operating point.
@@ -46,27 +54,28 @@ INPUT_PVS = [
 
 
 def _start_pva_server(pvs: list) -> None:
-    """Serve all PVs via PVA using p4p SharedPV."""
-    from p4p.nt import NTScalar
-    from p4p.server import Server
-    from p4p.server.thread import SharedPV
-
+    """Serve all PVs via PVA using p4p SharedPV on a fixed port."""
+    pva_port = int(os.environ.get("MOCK_PVA_PORT", "5076"))
     providers = {}
     pv_objects = {}
 
     for name, nominal, unit, _ in pvs:
-        nt = NTScalar("d")
-        pv = SharedPV(initial=nt.wrap(float(nominal)))
+        pv = SharedPV(initial=NTScalar("d").wrap(float(nominal)))
         providers[name] = pv
         pv_objects[name] = (pv, nominal)
 
-    server = Server(providers=[providers])  # noqa: F841
-    LOG.info("PVA server started for %d PVs", len(pvs))
+    # Keep server reference alive — GC would stop it otherwise
+    server = Server(providers=[providers])
+    pv_objects["__server__"] = (server, None)  # prevent GC
+    LOG.info("PVA server started for %d PVs on TCP port %d", len(pvs), pva_port)
     return pv_objects
 
 
 def _start_ca_server(pvs: list) -> object:
-    """Serve all PVs via CA using pcaspy."""
+    """Serve all PVs via CA using pcaspy. Disabled by default (set ENABLE_CA=true to enable)."""
+    if os.environ.get("ENABLE_CA", "").lower() not in ("true", "1", "yes"):
+        LOG.info("CA server disabled (set ENABLE_CA=true to enable)")
+        return None
     try:
         import pcaspy
         import pcaspy.cas
@@ -103,15 +112,13 @@ def _start_ca_server(pvs: list) -> object:
 
 def _update_loop(pva_pvs: dict, ca_driver, pvs: list, rate_hz: float, noise_pct: float) -> None:
     """Update all PVs with slow Gaussian noise at rate_hz."""
-    from p4p.nt import NTScalar
-
     interval = 1.0 / rate_hz
     # Track current drifted values
     current = {name: nominal for name, nominal, _, _ in pvs}
 
     while True:
         t0 = time.monotonic()
-        for name, nominal, unit, pv_noise_pct in pvs:
+        for name, nominal, unit, pv_noise_pct in pvs:  # pvs list, not pva_pvs dict
             effective_noise = abs(nominal) * (pv_noise_pct / 100.0) * noise_pct / 0.1
             if effective_noise == 0:
                 effective_noise = 1e-6

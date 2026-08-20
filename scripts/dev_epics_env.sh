@@ -24,28 +24,31 @@ case "$MODE" in
     # VA output PVs served on localhost:5075
     export EPICS_PVA_AUTO_ADDR_LIST="NO"
     export EPICS_PVA_ADDR_LIST="127.0.0.1"
+    export EPICS_PVA_NAME_SERVERS=""
     export EPICS_CA_AUTO_ADDR_LIST="NO"
     export EPICS_CA_ADDR_LIST="127.0.0.1"
     echo "EPICS → VA outputs (localhost:5075)"
     echo "  pvget BPMS:IN20:581:TMIT"
     ;;
   --ioc-only)
-    # Mock IOC input PVs served on mock-ioc
+    # Mock IOC input PVs — use name server for TCP-based discovery
     export EPICS_PVA_AUTO_ADDR_LIST="NO"
-    export EPICS_PVA_ADDR_LIST="mock-ioc"
+    export EPICS_PVA_ADDR_LIST=""
+    export EPICS_PVA_NAME_SERVERS="mock-ioc:5075"  # pvxs TCP6 port
     export EPICS_CA_AUTO_ADDR_LIST="NO"
     export EPICS_CA_ADDR_LIST="mock-ioc"
-    echo "EPICS → mock-ioc inputs"
+    echo "EPICS → mock-ioc inputs (name server: mock-ioc:5075)"
     echo "  pvget QUAD:IN20:631:BCTRL"
     echo "  pvput QUAD:IN20:631:BCTRL 7.4"
     ;;
   *)
-    # Both — pvua searches mock-ioc for inputs, localhost for VA outputs
+    # Both mock-ioc inputs + VA outputs — UDP broadcast works on Docker bridge network
     export EPICS_PVA_AUTO_ADDR_LIST="NO"
-    export EPICS_PVA_ADDR_LIST="mock-ioc 127.0.0.1"
+    export EPICS_PVA_NAME_SERVERS="mock-ioc:5075 127.0.0.1:5075"
+    unset EPICS_PVA_ADDR_LIST
     export EPICS_CA_AUTO_ADDR_LIST="NO"
     export EPICS_CA_ADDR_LIST="mock-ioc 127.0.0.1"
-    echo "EPICS → mock-ioc (inputs) + localhost (VA outputs)"
+    echo "EPICS → mock-ioc:5076 (inputs) + localhost:5075 (VA outputs)"
     ;;
 esac
 
