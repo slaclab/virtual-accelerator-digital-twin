@@ -86,7 +86,8 @@ RUN python -m pip install --upgrade setuptools wheel pyepics p4p prometheus-clie
     && cd /app \
     && python -m pip install --force-reinstall --no-deps \
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git" \
-        "lume-pva @ git+https://github.com/lume-science/lume-pva.git"
+        "lume-pva @ git+https://github.com/lume-science/lume-pva.git" \
+        "lume-torch @ git+https://github.com/lume-science/lume-torch.git"
 
 COPY run.py .
 COPY entrypoint.sh .

@@ -8,6 +8,7 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
     "prometheus-client>=0.19",
+    "lume-torch @ git+https://github.com/lume-science/lume-torch.git",
 ]
 
 [project.optional-dependencies]
