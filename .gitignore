@@ -4,7 +4,9 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 .venv/
-.vscode/
+.vscode/settings.json
 *.egg
 dist/
 build/
+claude/
+.memory/
