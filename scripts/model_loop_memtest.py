@@ -215,7 +215,8 @@ def _smaps_rollup() -> dict:
 # ---------------------------------------------------------------------------
 
 def _build_snapshot_runner(model):
-    """Build a lume_pva Runner in snapshot mode for take_snapshot() testing."""
+    """Build a lume_pva Runner in snapshot mode and start the consumer thread."""
+    import threading
     from lume_pva.runner import Runner
     config = Runner.generate_config(model, remote_inputs=True)
     config["protocol"] = ["pva"]
@@ -224,7 +225,13 @@ def _build_snapshot_runner(model):
     for k, v in config["variables"].items():
         if k == "track_type" or k.endswith(":BDES"):
             v["mode"] = "rw"
-    return Runner(model, config=config)
+    runner = Runner(model, config=config)
+    # Start the queue consumer — without this, every take_snapshot() enqueue
+    # is never consumed and the queue grows unboundedly (the leak we fixed).
+    t = threading.Thread(target=runner.run, daemon=True, name="runner-consumer")
+    t.start()
+    time.sleep(1)  # let consumer warm up
+    return runner
 
 
 def run_snapshot_batch(runner, n_cycles: int, interval_s: float = 0.1) -> None:
