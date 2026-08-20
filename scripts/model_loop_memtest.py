@@ -193,6 +193,30 @@ def _smaps_rollup() -> dict:
 # Main
 # ---------------------------------------------------------------------------
 
+def _build_snapshot_runner(model):
+    """Build a lume_pva Runner in snapshot mode for take_snapshot() testing."""
+    from lume_pva.runner import Runner
+    config = Runner.generate_config(model, remote_inputs=True)
+    config["protocol"] = ["pva"]
+    config["update_rate"] = 0
+    config["remote_model_mode"] = "snapshot"
+    for k, v in config["variables"].items():
+        if k == "track_type" or k.endswith(":BDES"):
+            v["mode"] = "rw"
+    return Runner(model, config=config)
+
+
+def run_snapshot_batch(runner, n_cycles: int, interval_s: float = 0.1) -> None:
+    """Call runner.take_snapshot() n_cycles times with throttling."""
+    for _ in range(n_cycles):
+        t0 = time.monotonic()
+        runner.take_snapshot()
+        elapsed = time.monotonic() - t0
+        sleep = interval_s - elapsed
+        if sleep > 0:
+            time.sleep(sleep)
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -208,6 +232,11 @@ def parse_args():
     p.add_argument("--end-element",      default=os.environ.get("END_ELEMENT", "OTR4"))
     p.add_argument("--n-particles",      type=int,
                    default=int(os.environ.get("N_PARTICLES", "1000")))
+    p.add_argument("--snapshot-mode",    action="store_true",
+                   help="Test Runner.take_snapshot() loop instead of model set/get. "
+                        "Requires EPICS PVA connection to mock-ioc or real machine.")
+    p.add_argument("--snapshot-interval", type=float, default=0.1,
+                   help="Seconds between take_snapshot() calls (default: 0.1)")
     return p.parse_args()
 
 
@@ -223,6 +252,21 @@ def main() -> int:
     cycles_per_batch = args.cycles_per_batch
     if cycles_per_batch == 0:
         cycles_per_batch = 10 if using_real else 500
+
+    # Snapshot mode: build Runner and use take_snapshot() loop
+    runner = None
+    if args.snapshot_mode:
+        if not using_real:
+            print("# ERROR: --snapshot-mode requires a real model (pytao unavailable)",
+                  file=sys.stderr, flush=True)
+            return 1
+        print("# Mode: SNAPSHOT (Runner.take_snapshot() → pvua → mock-ioc/real machine)",
+              file=sys.stderr, flush=True)
+        print(f"# snapshot_interval={args.snapshot_interval}s", file=sys.stderr, flush=True)
+        runner = _build_snapshot_runner(model)
+        cycles_per_batch = max(1, int(args.log_interval / args.snapshot_interval / 10))
+    else:
+        print(f"# Mode: MODEL SET/GET", file=sys.stderr, flush=True)
 
     print(f"# Model: {'REAL (' + args.model + ')' if using_real else 'FakeModel (pytao unavailable)'}",
           file=sys.stderr, flush=True)
@@ -241,7 +285,10 @@ def main() -> int:
     # Warm-up
     print("# warming up...", file=sys.stderr, flush=True)
     for _ in range(3):
-        run_batch(model, cycles_per_batch)
+        if runner is not None:
+            run_snapshot_batch(runner, cycles_per_batch, args.snapshot_interval)
+        else:
+            run_batch(model, cycles_per_batch)
     gc.collect()
 
     t_start = time.monotonic()
@@ -256,7 +303,10 @@ def main() -> int:
 
     try:
         while time.monotonic() < deadline:
-            run_batch(model, cycles_per_batch)
+            if runner is not None:
+                run_snapshot_batch(runner, cycles_per_batch, args.snapshot_interval)
+            else:
+                run_batch(model, cycles_per_batch)
             total_cycles += cycles_per_batch
 
             now = time.monotonic()
