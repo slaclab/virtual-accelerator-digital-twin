@@ -27,7 +27,8 @@
       "Bash(docker exec *)",
       "Bash(docker restart *)",
       "mcp__cognee__recall",
-      "mcp__cognee__remember"
+      "mcp__cognee__remember",
+      "Bash(git rm *)"
     ]
   }
 }
