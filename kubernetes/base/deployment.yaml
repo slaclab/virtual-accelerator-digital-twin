@@ -14,6 +14,10 @@ spec:
     metadata:
       labels:
         app: virtual-accelerator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
       restartPolicy: Always
       containers:
