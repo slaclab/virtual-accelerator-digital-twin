@@ -19,7 +19,14 @@ EPICS_PVA_NAME_SERVERS="127.0.0.1:5075" pvget BPMS:IN20:581:TMIT
 ### Kubernetes (Digital Twin with live inputs)
 
 ```bash
-kubectl apply -k kubernetes/overlays/cu-hxr-staged/
+kubectl apply -k kubernetes/overlays/prod/
+```
+
+For a development deployment that uses the locally built image:
+
+```bash
+docker build -t va-digital-twin:local .
+kubectl apply -k kubernetes/overlays/dev/
 ```
 
 Verify:
@@ -45,7 +52,7 @@ The image is model-agnostic. No rebuild needed — just create a Kubernetes over
 mkdir -p kubernetes/overlays/<model-name>
 ```
 
-Create `kustomization.yaml` with model-specific env vars (see `kubernetes/overlays/cu-hxr-staged/` as a template), then:
+Create `kustomization.yaml` with model-specific env vars (see `kubernetes/overlays/prod/` as a live-input template), then:
 
 ```bash
 kubectl apply -k kubernetes/overlays/<model-name>
@@ -133,7 +140,8 @@ Manual trigger with "no-cache" option available for forcing fresh dependency ins
 ├── kubernetes/
 │   ├── base/                       # Shared deployment template
 │   └── overlays/
-│       └── cu-hxr-staged/          # CU HXR staged model (prod)
+│       ├── dev/                    # Local-image development deployment
+│       └── prod/                   # Published-image production deployment
 └── .github/workflows/
     └── build-container.yml         # CI/CD pipeline
 ```

@@ -1,13 +1,14 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: virtual-accelerator
 resources:
   - ../../base
 generatorOptions:
   disableNameSuffixHash: true
+images:
+  - name: ghcr.io/slaclab/virtual-accelerator-digital-twin
+    newTag: main
 configMapGenerator:
   - name: va-config
-    namespace: virtual-accelerator
     behavior: create
     literals:
       - MODEL=cu_hxr_staged

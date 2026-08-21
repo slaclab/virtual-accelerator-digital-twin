@@ -23,7 +23,7 @@ spec:
       containers:
         - name: va
           image: ghcr.io/slaclab/virtual-accelerator-digital-twin:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           resources:
             requests:
               memory: "2Gi"

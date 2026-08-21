@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+generatorOptions:
+  disableNameSuffixHash: true
+images:
+  - name: ghcr.io/slaclab/virtual-accelerator-digital-twin
+    newTag: feature-prometheus
+configMapGenerator:
+  - name: va-config
+    behavior: create
+    literals:
+      - MODEL=cu_hxr_bmad
+      - REMOTE_INPUTS=false
+      - PV_SUFFIX=_DEV_LUME_DT
+      - PV_RENAMES={}
+      - END_ELEMENT=OTR4
+      - N_PARTICLES=1000
+      - LOG_LEVEL=DEBUG
+      - LCLS_LATTICE=/opt/lcls-lattice
+      - KMP_DUPLICATE_LIB_OK=TRUE
+      - OMP_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - TORCH_NUM_THREADS=1
+      - EPICS_PVA_AUTO_ADDR_LIST=YES
+      - PYEPICS_LIBCA=/opt/conda/lib/libca.so
+      - MALLOC_ARENA_MAX=1
+      - MALLOC_MMAP_THRESHOLD_=131072
+      - MEM_LOG_INTERVAL_S=60
