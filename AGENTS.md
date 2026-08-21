@@ -58,10 +58,22 @@ Only outputs (`mode='ro'`) get the suffix. Inputs are not served.
 
 ### Memory management
 
-The model creates new ParticleGroup objects (10k particles) every cycle. To prevent OOM:
-- `torch.no_grad()` wraps the snapshot loop (prevents computation graph accumulation)
-- `gc.collect()` runs every 50 cycles (~17 min)
-- Upstream fix needed: `beam_output.py` should reuse Generator instances
+Two root causes of OOM identified and fixed. See `docs/thp-memory-leak.md` for full investigation.
+
+**Root cause 1 — Transparent Huge Pages (THP):**
+The k8s node runs `THP=always`. libtao Fortran heap allocations get promoted to 2 MB huge pages that the kernel never returns after free → monotonic RSS growth.
+Fix: `prctl(PR_SET_THP_DISABLE)` called at `run.py` startup before any pytao import.
+
+**Root cause 2 — `snapshot_loop` queue backlog:**
+Without a sleep, `take_snapshot()` ran at ~40 Hz, flooding the runner queue with `p4p.Value` objects faster than consumed → 2.3 GB accumulation over hours.
+Fix: sleep `update_rate` seconds between calls (default 0.1s = 10 Hz).
+
+Additional mitigations in `kubernetes/configmap.yaml`:
+- `MALLOC_ARENA_MAX=1` — single glibc arena
+- `MALLOC_MMAP_THRESHOLD_=131072` — large allocs via mmap, returned to OS on free
+
+Memory diagnostics: `[mem]` and `[thp]` log lines to stderr every `MEM_LOG_INTERVAL_S` seconds.
+Monitor: `kubectl logs deployment/virtual-accelerator | grep -E '^\[thp\]|\[mem\]'`
 
 ### EPICS connectivity
 
@@ -79,7 +91,8 @@ The pod uses `pvua` which auto-discovers providers (tries PVA first, falls back 
 | ACCL PVs unreachable | CA-only PVs, no CA config | Added CA env vars + epics-base |
 | `track_type` validation | Internal var marked remote | Excluded from remote mode |
 | BDES/BCTRL conflict | Both write same magnet field | Excluded `:BDES` from remote |
-| OOM after 2 days | ParticleGroup/tensor accumulation | `torch.no_grad()` + `gc.collect()` |
+| OOM after 2 days (THP) | Fortran heap promoted to 2 MB huge pages never freed | `prctl(PR_SET_THP_DISABLE)` at startup |
+| OOM after 2 days (queue) | `snapshot_loop` at 40 Hz flooded queue with p4p.Value objects | Throttle to `update_rate` (0.1s) |
 | `name` PV not real | Model metadata variable | Removed from config |
 
 ## Deploying a New Model
@@ -193,14 +206,99 @@ GitHub Actions workflow (`.github/workflows/build-container.yml`):
 
 Manual trigger with "no-cache" checkbox available for forcing fresh dependency installs.
 
+## Prometheus Metrics
+
+`run.py` exposes a Prometheus `/metrics` endpoint on port `METRICS_PORT` (default 9090) using `prometheus_client`.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `va_rss_bytes` | Gauge | Process RSS |
+| `va_anon_huge_pages_bytes` | Gauge | AnonHugePages — must stay 0 after THP fix |
+| `va_thp_disabled` | Gauge | 1 if THP successfully disabled |
+| `va_snapshot_cycles_total` | Counter | Total `take_snapshot()` calls |
+| `va_snapshot_duration_seconds` | Histogram | Time per snapshot cycle |
+| `va_gc_collects_total` | Counter | GC+malloc_trim invocations |
+| `va_pv_posts_total{pv=...}` | Counter | SharedPV post() calls per PV |
+
+Kubernetes `ServiceMonitor` in `kubernetes/base/servicemonitor.yaml` scrapes every 30s.
+
+Monitor locally:
+```bash
+kubectl port-forward svc/virtual-accelerator 9090:9090 -n virtual-accelerator
+curl http://localhost:9090/metrics | grep "^va_"
+```
+
+## Local Development (devcontainer)
+
+`.devcontainer/` provides a VSCode devcontainer with two services:
+- **devenv** — full `base` image stage with `/workspace` volume-mounted; run `run.py` live
+- **mock-ioc** — serves the 16 real snapshot PVs via PVA on port 5076
+
+```bash
+# Open in VSCode
+# Ctrl+Shift+P → "Dev Containers: Reopen in Container"
+
+# Or via CLI
+devcontainer up --workspace-folder .
+```
+
+### EPICS tools in devcontainer
+
+```bash
+source /workspace/scripts/dev_epics_env.sh  # configures pvget/pvput/pvmon
+
+pvget QUAD:IN20:631:BCTRL      # read from mock-ioc
+pvput QUAD:IN20:631:BCTRL 7.5  # write to mock-ioc
+pvmon SOLN:IN20:121:BCTRL      # monitor updates
+```
+
+### Launch configurations (VSCode F5)
+
+| Config | Purpose |
+|--------|---------|
+| Run VA (cu_hxr_staged, remote inputs) | Full VA reading from mock-ioc |
+| Memory leak test — model set/get (FakeModel) | Pure numpy, no pytao |
+| Memory leak test — model set/get (real cu_hxr_staged) | Real pytao/libtao heap |
+| Memory leak test — take_snapshot (real model + mock-ioc) | Tests the fixed queue-backlog path |
+
+### Memory leak test script
+
+`scripts/model_loop_memtest.py` — standalone, no pytest, runs for hours:
+```bash
+# FakeModel (local, no pytao)
+python scripts/model_loop_memtest.py --duration 3600 --log-interval 60
+
+# Real model set/get
+python scripts/model_loop_memtest.py --model cu_hxr_staged --duration 3600
+
+# Snapshot mode (tests take_snapshot() path via mock-ioc)
+python scripts/model_loop_memtest.py --snapshot-mode --model cu_hxr_staged \
+  --snapshot-interval 0.1 --duration 3600
+```
+
+Output CSV: `elapsed_s, rss_mb, anon_huge_pages_kb, py_heap_mb, total_cycles, cycles_per_s, rss_delta_mb`
+
+## Testing
+
+```bash
+# Local tests (no docker, no pytao)
+pip install -e ".[test]"
+pytest tests/ -m "not integration"
+
+# Docker integration tests (VA + pv-client)
+docker compose -f docker-compose.integration.yml run --rm pv-client
+```
+
 ## Dependencies (pinned in Dockerfile)
 
 | Package | Source | Notes |
 |---------|--------|-------|
-| virtual-accelerator | GitHub (pinned commit) | The model definitions |
+| virtual-accelerator | GitHub (pinned commit) | Model definitions + surrogate extras |
 | lume-pva | GitHub (latest main) | PV server framework |
 | lume-bmad | GitHub (latest main) | Bmad model wrapper |
+| lume-torch | GitHub (latest main) | Torch variable types for surrogate |
 | bmad, pytao | conda-forge | Lattice physics engine |
-| epics-base, pvxs | conda-forge | EPICS CA/PVA libraries |
+| epics-base, pvxs=1.5.2 | conda-forge | EPICS CA/PVA libraries |
 | torch | PyPI (CPU only) | ML surrogate inference |
+| prometheus-client | PyPI | Prometheus metrics HTTP server |
 | lcls-lattice | GitHub (pinned commit) | Lattice definition files |

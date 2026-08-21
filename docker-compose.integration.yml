@@ -1,0 +1,33 @@
+services:
+  virtual-accelerator:
+    image: va-digital-twin:local
+    container_name: va-integration
+    environment:
+      MODEL: cu_hxr_bmad
+      END_ELEMENT: OTR4
+      N_PARTICLES: "100"
+      LOG_LEVEL: INFO
+      REMOTE_INPUTS: "false"
+      METRICS_PORT: "9090"
+      MEM_LOG_INTERVAL_S: "30"
+      EPICS_PVA_AUTO_ADDR_LIST: "YES"
+      MALLOC_ARENA_MAX: "1"
+      MALLOC_MMAP_THRESHOLD_: "131072"
+
+  pv-client:
+    image: va-digital-twin:local
+    container_name: va-pv-client
+    depends_on:
+      - virtual-accelerator
+    environment:
+      EPICS_PVA_ADDR_LIST: "va-integration"
+      EPICS_PVA_AUTO_ADDR_LIST: "NO"
+      VA_HOST: "va-integration"
+      METRICS_HOST: "va-integration"
+      METRICS_PORT: "9090"
+      VA_STARTUP_TIMEOUT: "180"
+    command: >
+      python -m pytest tests/integration/ -v
+      --tb=short
+      -m integration
+    restart: "no"

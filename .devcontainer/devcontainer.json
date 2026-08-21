@@ -1,0 +1,54 @@
+{
+  "name": "Virtual Accelerator Digital Twin",
+  "dockerComposeFile": "docker-compose.devcontainer.yml",
+  "service": "devenv",
+  "workspaceFolder": "/workspace",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pylance",
+        "ms-python.debugpy",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/conda/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["-m", "not integration"],
+        "python.testing.cwd": "/workspace",
+        "editor.formatOnSave": true,
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+
+  "remoteEnv": {
+    "LCLS_LATTICE": "/opt/lcls-lattice",
+    "EPICS_PVA_AUTO_ADDR_LIST": "NO",
+    "EPICS_PVA_NAME_SERVERS": "mock-ioc:5076",
+    "EPICS_CA_AUTO_ADDR_LIST": "NO",
+    "EPICS_CA_ADDR_LIST": "mock-ioc 127.0.0.1",
+    "PYEPICS_LIBCA": "/opt/conda/epics/lib/linux-x86_64/libca.so",
+    "PATH": "/opt/conda/epics/bin/linux-x86_64:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "LD_LIBRARY_PATH": "/opt/conda/epics/lib/linux-x86_64",
+    "MODEL": "cu_hxr_staged",
+    "END_ELEMENT": "OTR4",
+    "N_PARTICLES": "100",
+    "REMOTE_INPUTS": "true",
+    "METRICS_PORT": "9090",
+    "MEM_LOG_INTERVAL_S": "60"
+  },
+
+  "postCreateCommand": "bash /workspace/.devcontainer/setup.sh",
+  "postStartCommand": "printf '#!/bin/bash\\nsource /workspace/scripts/dev_epics_env.sh > /dev/null 2>&1\\npython -m p4p.client.cli get \"$@\"\\n' > /usr/local/bin/pvget && printf '#!/bin/bash\\nsource /workspace/scripts/dev_epics_env.sh > /dev/null 2>&1\\npython -m p4p.client.cli put \"$@\"\\n' > /usr/local/bin/pvput && printf '#!/bin/bash\\nsource /workspace/scripts/dev_epics_env.sh > /dev/null 2>&1\\npython -m p4p.client.cli monitor \"$@\"\\n' > /usr/local/bin/pvmon && chmod +x /usr/local/bin/pvget /usr/local/bin/pvput /usr/local/bin/pvmon && echo 'pvget/pvput/pvmon ready'",
+
+  "forwardPorts": [9090],
+  "portsAttributes": {
+    "9090": {"label": "Prometheus metrics"}
+  },
+
+  "remoteUser": "root"
+}

@@ -1,0 +1,35 @@
+services:
+  virtual-accelerator:
+    build:
+      context: .
+      args:
+        DOCKER_PLATFORM: linux/amd64
+    image: va-digital-twin:local
+    container_name: virtual-accelerator
+    environment:
+      MODEL: cu_hxr_bmad
+      END_ELEMENT: OTR4
+      N_PARTICLES: "1000"
+      LOG_LEVEL: INFO
+      METRICS_PORT: "9090"
+      MEM_LOG_INTERVAL_S: "60"
+      EPICS_PVA_AUTO_ADDR_LIST: "YES"
+      MALLOC_ARENA_MAX: "1"
+      MALLOC_MMAP_THRESHOLD_: "131072"
+    ports:
+      - "5075:5075/tcp"
+      - "9090:9090/tcp"
+
+  metrics-check:
+    image: va-digital-twin:local
+    container_name: metrics-check
+    depends_on:
+      - virtual-accelerator
+    environment:
+      METRICS_HOST: "virtual-accelerator"
+      METRICS_PORT: "9090"
+      METRICS_TIMEOUT: "10"
+      METRICS_RETRIES: "24"
+      METRICS_RETRY_INTERVAL: "10"
+    command: ["python", "tests/integration/test_metrics_endpoint.py"]
+    restart: "no"

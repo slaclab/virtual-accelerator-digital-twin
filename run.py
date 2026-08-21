@@ -10,12 +10,51 @@ Configurable via environment variables:
     PV_SUFFIX_ML   - Suffix for ML model outputs in staged models (default: none)
     PV_SUFFIX_PH   - Suffix for physics model outputs in staged models (default: none)
     PV_RENAMES     - JSON dict of PV name renames applied before suffix (default: none)
+    METRICS_PORT   - Port for Prometheus /metrics endpoint (default: 9090, 0=disabled)
+    MEM_LOG_INTERVAL_S - Memory log interval in seconds (default: 300)
 """
 
+import ctypes
 import json
 import os
 import sys
-import ctypes
+import threading
+
+from prometheus_client import (
+    Counter,
+    Gauge,
+    Histogram,
+    start_http_server,
+    REGISTRY,
+    CollectorRegistry,
+)
+
+# ---------------------------------------------------------------------------
+# Prometheus metrics — declared at module level, one registry per process
+# ---------------------------------------------------------------------------
+
+_VA_RSS             = Gauge("va_rss_bytes",              "Process RSS in bytes")
+_VA_ANON            = Gauge("va_anon_bytes",             "Anonymous heap in bytes")
+_VA_AHP             = Gauge("va_anon_huge_pages_bytes",  "AnonHugePages in bytes (0 after THP fix)")
+_VA_UPTIME          = Gauge("va_uptime_seconds",         "Seconds since runner started")
+_VA_THP_DISABLED    = Gauge("va_thp_disabled",           "1 if THP disabled successfully, 0 otherwise")
+_VA_QUEUE_SIZE      = Gauge("va_runner_queue_size",      "Current runner queue depth")
+
+_VA_SNAP_CYCLES     = Counter("va_snapshot_cycles",      "Total take_snapshot() calls")
+_VA_SNAP_DURATION   = Histogram("va_snapshot_duration_seconds",
+                                "Time per take_snapshot() call",
+                                buckets=[.005, .01, .025, .05, .1, .25, .5, 1.0])
+_VA_SNAP_WAIT       = Histogram("va_snapshot_queue_wait_seconds",
+                                "Time waiting for queue to drain before take_snapshot()",
+                                buckets=[0, .001, .005, .01, .05, .1, .5, 1.0, 5.0])
+_VA_GC_COLLECT      = Counter("va_gc_collects",          "GC+malloc_trim invocations")
+
+_VA_PV_POSTS        = Counter("va_pv_posts",             "SharedPV post() calls", ["pv"])
+
+
+# ---------------------------------------------------------------------------
+# Memory helpers
+# ---------------------------------------------------------------------------
 
 def _read_smaps_rollup() -> dict:
     """Read key fields from /proc/self/smaps_rollup. Returns empty dict on failure."""
@@ -32,20 +71,26 @@ def _read_smaps_rollup() -> dict:
 
 
 def _log_memory(label: str) -> None:
-    """Log RSS, anonymous heap, and AnonHugePages to stderr."""
+    """Log RSS/anon/AnonHugePages to stderr and update Prometheus gauges."""
     m = _read_smaps_rollup()
     if not m:
         print(f"[mem] {label}: smaps unavailable", file=sys.stderr)
         return
-    rss_mb = m.get("Rss", 0) / 1024
+    rss_mb  = m.get("Rss", 0) / 1024
     anon_mb = m.get("Anonymous", 0) / 1024
-    ahp_mb = m.get("AnonHugePages", 0) / 1024
+    ahp_mb  = m.get("AnonHugePages", 0) / 1024
     print(
         f"[mem] {label}: RSS={rss_mb:.1f}MB  anon={anon_mb:.1f}MB  AnonHugePages={ahp_mb:.1f}MB",
-        file=sys.stderr,
-        flush=True,
+        file=sys.stderr, flush=True,
     )
+    _VA_RSS.set(m.get("Rss", 0) * 1024)
+    _VA_ANON.set(m.get("Anonymous", 0) * 1024)
+    _VA_AHP.set(m.get("AnonHugePages", 0) * 1024)
 
+
+# ---------------------------------------------------------------------------
+# THP
+# ---------------------------------------------------------------------------
 
 def _disable_thp() -> None:
     """Disable Transparent Huge Pages for this process.
@@ -59,58 +104,84 @@ def _disable_thp() -> None:
     PR_GET_THP_DISABLE = 42
     try:
         libc = ctypes.CDLL("libc.so.6", use_errno=True)
-
         before = libc.prctl(PR_GET_THP_DISABLE, 0, 0, 0, 0)
-        rc = libc.prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0)
-        after = libc.prctl(PR_GET_THP_DISABLE, 0, 0, 0, 0)
-
+        rc     = libc.prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0)
+        after  = libc.prctl(PR_GET_THP_DISABLE, 0, 0, 0, 0)
         if rc != 0:
             print(f"[thp] WARNING: prctl(PR_SET_THP_DISABLE) failed rc={rc}", file=sys.stderr)
+            _VA_THP_DISABLED.set(0)
         else:
             status = "disabled" if after == 1 else "STILL ENABLED (unexpected)"
-            print(
-                f"[thp] THP before={before} after={after} -> {status}",
-                file=sys.stderr,
-                flush=True,
-            )
+            print(f"[thp] THP before={before} after={after} -> {status}", file=sys.stderr, flush=True)
+            _VA_THP_DISABLED.set(1 if after == 1 else 0)
     except Exception as e:
         print(f"[thp] WARNING: could not disable THP: {e}", file=sys.stderr, flush=True)
+        _VA_THP_DISABLED.set(0)
 
 
-def _start_mem_logger(interval_s: int = 300) -> None:
-    """Background thread: log RSS/AnonHugePages every interval_s seconds."""
-    import threading
+# ---------------------------------------------------------------------------
+# Background mem logger
+# ---------------------------------------------------------------------------
+
+def _start_mem_logger(interval_s: int, runner) -> None:
+    """Background thread: log RSS/AnonHugePages and update gauges every interval_s seconds."""
     import time
 
     def _loop():
         t0 = time.monotonic()
         while True:
             time.sleep(interval_s)
-            elapsed_min = (time.monotonic() - t0) / 60
-            _log_memory(f"t={elapsed_min:.1f}min")
+            elapsed = time.monotonic() - t0
+            _log_memory(f"t={elapsed / 60:.1f}min")
+            _VA_UPTIME.set(elapsed)
+            try:
+                _VA_QUEUE_SIZE.set(runner.queue.qsize())
+            except Exception:
+                pass
 
-    t = threading.Thread(target=_loop, daemon=True, name="mem-logger")
-    t.start()
+    threading.Thread(target=_loop, daemon=True, name="mem-logger").start()
 
+
+# ---------------------------------------------------------------------------
+# PV post instrumentation
+# ---------------------------------------------------------------------------
+
+def _instrument_pv_posts(runner) -> None:
+    """Wrap SharedPV.post() on all runner PVs to count posts via prometheus_client."""
+    for var_name, pv in runner.pvs.items():
+        pv_name = runner.var_to_pv.get(var_name, var_name)
+        original_post = pv.post
+
+        def _counted_post(value, _n=pv_name, _o=original_post):
+            _VA_PV_POSTS.labels(pv=_n).inc()
+            _o(value)
+
+        pv.post = _counted_post
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main():
     _disable_thp()
     _log_memory("startup")
-    model_name = os.environ.get("MODEL", "cu_hxr_bmad")
-    end_element = os.environ.get("END_ELEMENT", "OTR4")
-    n_particles = int(os.environ.get("N_PARTICLES", "10000"))
-    log_level = os.environ.get("LOG_LEVEL", "INFO")
+
+    model_name        = os.environ.get("MODEL", "cu_hxr_bmad")
+    end_element       = os.environ.get("END_ELEMENT", "OTR4")
+    n_particles       = int(os.environ.get("N_PARTICLES", "10000"))
+    log_level         = os.environ.get("LOG_LEVEL", "INFO")
     mem_log_interval_s = int(os.environ.get("MEM_LOG_INTERVAL_S", "300"))
-    remote_inputs = os.environ.get("REMOTE_INPUTS", "").lower() in ("true", "1", "yes")
-    pv_suffix = os.environ.get("PV_SUFFIX", "")
-    pv_suffix_ml = os.environ.get("PV_SUFFIX_ML", "")
-    pv_suffix_ph = os.environ.get("PV_SUFFIX_PH", "")
-    pv_renames = json.loads(os.environ.get("PV_RENAMES", "{}"))
+    remote_inputs     = os.environ.get("REMOTE_INPUTS", "").lower() in ("true", "1", "yes")
+    pv_suffix         = os.environ.get("PV_SUFFIX", "")
+    pv_suffix_ml      = os.environ.get("PV_SUFFIX_ML", "")
+    pv_suffix_ph      = os.environ.get("PV_SUFFIX_PH", "")
+    pv_renames        = json.loads(os.environ.get("PV_RENAMES", "{}"))
+    metrics_port      = int(os.environ.get("METRICS_PORT", "9090"))
 
     import logging
     logging.basicConfig(level=getattr(logging, log_level))
     logging.getLogger("pytao").setLevel(logging.WARNING)
-
 
     from lume_pva.runner import Runner
     from virtual_accelerator.models.cu_hxr import (
@@ -139,23 +210,17 @@ def main():
     config["protocol"] = ["pva"]
     config["update_rate"] = 0
 
-    # Apply PV renames before suffix
     for k, v in config['variables'].items():
         if v['pv'] in pv_renames:
             v['pv'] = pv_renames[v['pv']]
 
-    # Internal model variables that aren't real PVs — skip suffix
     skip_suffix = {"name"}
 
-    # Apply differentiated suffixes for staged models (ML vs physics)
     if (pv_suffix_ml or pv_suffix_ph) and hasattr(model, 'lume_model_instances'):
         ml_vars = set(model.lume_model_instances[0].supported_variables)
         for k, v in config['variables'].items():
             if v['mode'] == 'ro' and k not in skip_suffix:
-                if k in ml_vars:
-                    v['pv'] = v['pv'] + pv_suffix_ml
-                else:
-                    v['pv'] = v['pv'] + pv_suffix_ph
+                v['pv'] = v['pv'] + (pv_suffix_ml if k in ml_vars else pv_suffix_ph)
     elif pv_suffix:
         for k, v in config['variables'].items():
             if v['mode'] == 'ro' and k not in skip_suffix:
@@ -163,25 +228,24 @@ def main():
 
     config["remote_model_mode"] = "snapshot"
 
-    # Exclude variables that shouldn't be read remotely:
-    # - track_type: internal model variable, not a real PV
-    # - :BDES: conflicts with :BCTRL for the same physical field (last-write-wins)
     for k, v in config["variables"].items():
         if k == "track_type" or k.endswith(":BDES"):
             v["mode"] = "rw"
 
     runner = Runner(model, config=config)
-    
+
+    _instrument_pv_posts(runner)
+
+    if metrics_port > 0:
+        start_http_server(metrics_port)
+        print(f"[metrics] Prometheus HTTP server on :{metrics_port}/metrics", file=sys.stderr, flush=True)
 
     if remote_inputs:
-        import ctypes
         import gc
-        import threading
+        import time as _time
         import torch
 
         _libc = ctypes.CDLL("libc.so.6")
-
-        import time as _time
 
         # Throttle to the runner's update_rate so the queue never backlogs.
         # Without a sleep, take_snapshot() runs as fast as network allows (~40 Hz),
@@ -195,21 +259,37 @@ def main():
             with torch.no_grad():
                 while True:
                     t0 = _time.monotonic()
+
+                    # Wait for queue to drain before producing next item.
+                    # If consumer (model) is slower than producer (snapshot),
+                    # the queue backlog grows — each item holds a p4p.Value
+                    # (C++ PVStructure) that accumulates in the heap.
+                    _wait_t0 = _time.monotonic()
+                    while runner.queue.qsize() > 1:
+                        _time.sleep(0.01)
+                    _VA_SNAP_WAIT.observe(_time.monotonic() - _wait_t0)
+                    _VA_QUEUE_SIZE.set(runner.queue.qsize())
+
                     runner.take_snapshot()
                     cycle += 1
+
+                    _VA_SNAP_CYCLES.inc()
+                    _VA_SNAP_DURATION.observe(_time.monotonic() - t0)
+
                     if cycle % 50 == 0:
                         gc.collect()
                         _libc.malloc_trim(0)
+                        _VA_GC_COLLECT.inc()
+
                     elapsed = _time.monotonic() - t0
                     sleep = _snapshot_interval - elapsed
                     if sleep > 0:
                         _time.sleep(sleep)
 
-        t = threading.Thread(target=snapshot_loop, args=(runner,), daemon=True)
-        t.start()
+        threading.Thread(target=snapshot_loop, args=(runner,), daemon=True).start()
 
     _log_memory("runner-started")
-    _start_mem_logger(interval_s=mem_log_interval_s)
+    _start_mem_logger(interval_s=mem_log_interval_s, runner=runner)
 
     runner.run()
 

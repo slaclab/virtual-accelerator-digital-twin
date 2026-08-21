@@ -14,6 +14,10 @@ spec:
     metadata:
       labels:
         app: virtual-accelerator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
       restartPolicy: Always
       containers:
@@ -37,6 +41,9 @@ spec:
             - containerPort: 5076
               protocol: UDP
               name: pva-udp
+            - containerPort: 9090
+              protocol: TCP
+              name: metrics
           startupProbe:
             exec:
               command: ["python", "-c", "import p4p; print('ok')"]

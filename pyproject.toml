@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "virtual-accelerator-digital-twin"
+version = "0.1.0"
+requires-python = ">=3.10"
+[project.optional-dependencies]
+test = [
+    "pytest>=7",
+    "numpy",
+    "prometheus-client>=0.19",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+markers = [
+    "integration: tests that require docker services running",
+]
+# Skip integration markers unless explicitly selected
+addopts = "-m 'not integration'"
