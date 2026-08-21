@@ -1,15 +1,32 @@
 {
-  "annotations": [],
+  "annotations": [
+    {
+      "kind": "AnnotationQuery",
+      "spec": {
+        "builtIn": true,
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "query": {
+          "datasource": {
+            "name": "-- Grafana --"
+          },
+          "group": "grafana",
+          "kind": "DataQuery",
+          "spec": {},
+          "version": "v0"
+        }
+      }
+    }
+  ],
   "cursorSync": "Crosshair",
-  "description": "Virtual Accelerator Digital Twin \u2014 Grafana 13 V2 dashboard resource schema",
+  "description": "Virtual Accelerator Digital Twin — Grafana 13 V2 dashboard resource schema",
   "editable": true,
   "elements": {
-    "uptime": {
+    "panel-1": {
       "kind": "Panel",
       "spec": {
-        "id": 1,
-        "title": "Uptime",
-        "links": [],
         "data": {
           "kind": "QueryGroup",
           "spec": {
@@ -17,46 +34,39 @@
               {
                 "kind": "PanelQuery",
                 "spec": {
+                  "hidden": false,
                   "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
                     "datasource": {
                       "name": "${DS_PROMETHEUS}"
                     },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
                     "spec": {
+                      "editorMode": "code",
+                      "exemplar": false,
                       "expr": "va_uptime_seconds{job=~\"$job\"}",
-                      "legendFormat": "uptime"
-                    }
+                      "instant": true,
+                      "legendFormat": "uptime",
+                      "range": false
+                    },
+                    "version": "v0"
                   },
-                  "refId": "A",
-                  "hidden": false
+                  "refId": "A"
                 }
               }
             ],
-            "transformations": [],
-            "queryOptions": {}
+            "queryOptions": {},
+            "transformations": []
           }
         },
+        "description": "Virtual Accelerator process uptime.",
+        "id": 1,
+        "links": [],
+        "title": "Uptime",
         "vizConfig": {
-          "kind": "VizConfig",
           "group": "stat",
-          "version": "13.1.2",
+          "kind": "VizConfig",
           "spec": {
-            "options": {
-              "colorMode": "value",
-              "graphMode": "none",
-              "justifyMode": "auto",
-              "orientation": "auto",
-              "reduceOptions": {
-                "calcs": [
-                  "lastNotNull"
-                ],
-                "fields": "",
-                "values": false
-              },
-              "textMode": "auto"
-            },
             "fieldConfig": {
               "defaults": {
                 "color": {
@@ -67,148 +77,20 @@
                   "steps": [
                     {
                       "color": "green",
-                      "value": -1.7976931348623157e+308
+                      "value": 0
                     }
                   ]
                 },
                 "unit": "s"
               },
               "overrides": []
-            }
-          }
-        },
-        "description": "Virtual Accelerator process uptime."
-      }
-    },
-    "queue-depth-stat": {
-      "kind": "Panel",
-      "spec": {
-        "id": 2,
-        "title": "Queue Depth",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "va_runner_queue_size{job=~\"$job\"}",
-                      "legendFormat": "queue"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "stat",
-          "version": "13.1.2",
-          "spec": {
-            "options": {
-              "colorMode": "background",
-              "graphMode": "area",
-              "justifyMode": "auto",
-              "orientation": "auto",
-              "reduceOptions": {
-                "calcs": [
-                  "lastNotNull"
-                ],
-                "fields": "",
-                "values": false
-              },
-              "textMode": "auto"
             },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "thresholds"
-                },
-                "thresholds": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": -1.7976931348623157e+308
-                    },
-                    {
-                      "color": "yellow",
-                      "value": 5
-                    },
-                    {
-                      "color": "red",
-                      "value": 20
-                    }
-                  ]
-                },
-                "unit": "short",
-                "min": 0
-              },
-              "overrides": []
-            }
-          }
-        },
-        "description": "Current number of pending items in the runner queue."
-      }
-    },
-    "thp-disabled": {
-      "kind": "Panel",
-      "spec": {
-        "id": 3,
-        "title": "THP Disabled",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "va_thp_disabled{job=~\"$job\"}",
-                      "legendFormat": "thp_disabled"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "stat",
-          "version": "13.1.2",
-          "spec": {
             "options": {
               "colorMode": "value",
               "graphMode": "none",
               "justifyMode": "auto",
               "orientation": "auto",
+              "percentChangeColorMode": "standard",
               "reduceOptions": {
                 "calcs": [
                   "lastNotNull"
@@ -216,56 +98,18 @@
                 "fields": "",
                 "values": false
               },
-              "textMode": "auto"
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "thresholds"
-                },
-                "thresholds": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "red",
-                      "value": -1.7976931348623157e+308
-                    },
-                    {
-                      "color": "green",
-                      "value": 0.5
-                    }
-                  ]
-                },
-                "mappings": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "0": {
-                        "text": "Enabled",
-                        "color": "red"
-                      },
-                      "1": {
-                        "text": "Disabled",
-                        "color": "green"
-                      }
-                    }
-                  }
-                ],
-                "unit": "short"
-              },
-              "overrides": []
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
             }
-          }
-        },
-        "description": "Transparent Huge Pages status. Disabled is the expected state."
+          },
+          "version": "13.1.2"
+        }
       }
     },
-    "snapshot-rate-stat": {
+    "panel-10": {
       "kind": "Panel",
       "spec": {
-        "id": 6,
-        "title": "Snapshot Rate",
-        "links": [],
         "data": {
           "kind": "QueryGroup",
           "spec": {
@@ -273,320 +117,124 @@
               {
                 "kind": "PanelQuery",
                 "spec": {
+                  "hidden": false,
                   "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
                     "datasource": {
                       "name": "${DS_PROMETHEUS}"
                     },
-                    "spec": {
-                      "expr": "sum(rate(va_snapshot_cycles_total{job=~\"$job\"}[$__rate_interval]))",
-                      "legendFormat": "cycles/s"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "stat",
-          "version": "13.1.2",
-          "spec": {
-            "options": {
-              "colorMode": "value",
-              "graphMode": "area",
-              "justifyMode": "auto",
-              "orientation": "auto",
-              "reduceOptions": {
-                "calcs": [
-                  "lastNotNull"
-                ],
-                "fields": "",
-                "values": false
-              },
-              "textMode": "auto"
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "thresholds"
-                },
-                "thresholds": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": -1.7976931348623157e+308
-                    }
-                  ]
-                },
-                "unit": "ops"
-              },
-              "overrides": []
-            }
-          }
-        },
-        "description": "Current aggregate snapshot processing rate."
-      }
-    },
-    "snapshot-p95-stat": {
-      "kind": "Panel",
-      "spec": {
-        "id": 7,
-        "title": "Snapshot p95",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
                     "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "histogram_quantile(0.95, sum by (le) (rate(va_snapshot_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
-                      "legendFormat": "p95"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "stat",
-          "version": "13.1.2",
-          "spec": {
-            "options": {
-              "colorMode": "value",
-              "graphMode": "none",
-              "justifyMode": "auto",
-              "orientation": "auto",
-              "reduceOptions": {
-                "calcs": [
-                  "lastNotNull"
-                ],
-                "fields": "",
-                "values": false
-              },
-              "textMode": "auto"
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "thresholds"
-                },
-                "thresholds": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": -1.7976931348623157e+308
-                    }
-                  ]
-                },
-                "unit": "s"
-              },
-              "overrides": []
-            }
-          }
-        },
-        "description": "95th percentile snapshot processing duration."
-      }
-    },
-    "queue-wait-p95-stat": {
-      "kind": "Panel",
-      "spec": {
-        "id": 8,
-        "title": "Queue Wait p95",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
                     "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "histogram_quantile(0.95, sum by (le) (rate(va_snapshot_queue_wait_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
-                      "legendFormat": "p95"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "stat",
-          "version": "13.1.2",
-          "spec": {
-            "options": {
-              "colorMode": "value",
-              "graphMode": "none",
-              "justifyMode": "auto",
-              "orientation": "auto",
-              "reduceOptions": {
-                "calcs": [
-                  "lastNotNull"
-                ],
-                "fields": "",
-                "values": false
-              },
-              "textMode": "auto"
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "thresholds"
-                },
-                "thresholds": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": -1.7976931348623157e+308
-                    }
-                  ]
-                },
-                "unit": "s"
-              },
-              "overrides": []
-            }
-          }
-        },
-        "description": "95th percentile time snapshots spend waiting in the runner queue."
-      }
-    },
-    "memory-usage": {
-      "kind": "Panel",
-      "spec": {
-        "id": 10,
-        "title": "Memory Usage",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
                     "spec": {
                       "expr": "va_rss_bytes{job=~\"$job\"}",
                       "legendFormat": "RSS"
-                    }
+                    },
+                    "version": "v0"
                   },
-                  "refId": "A",
-                  "hidden": false
+                  "refId": "A"
                 }
               },
               {
                 "kind": "PanelQuery",
                 "spec": {
+                  "hidden": false,
                   "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
                     "datasource": {
                       "name": "${DS_PROMETHEUS}"
                     },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
                     "spec": {
                       "expr": "va_anon_bytes{job=~\"$job\"}",
                       "legendFormat": "Anon heap"
-                    }
+                    },
+                    "version": "v0"
                   },
-                  "refId": "B",
-                  "hidden": false
+                  "refId": "B"
                 }
               },
               {
                 "kind": "PanelQuery",
                 "spec": {
+                  "hidden": false,
                   "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
                     "datasource": {
                       "name": "${DS_PROMETHEUS}"
                     },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
                     "spec": {
                       "expr": "va_anon_huge_pages_bytes{job=~\"$job\"}",
                       "legendFormat": "AnonHugePages"
-                    }
+                    },
+                    "version": "v0"
                   },
-                  "refId": "C",
-                  "hidden": false
+                  "refId": "C"
                 }
               }
             ],
-            "transformations": [],
-            "queryOptions": {}
+            "queryOptions": {},
+            "transformations": []
           }
         },
+        "description": "Resident, anonymous heap, and anonymous huge-page memory usage.",
+        "id": 10,
+        "links": [],
+        "title": "Memory Usage",
         "vizConfig": {
-          "kind": "VizConfig",
           "group": "timeseries",
-          "version": "13.1.2",
+          "kind": "VizConfig",
           "spec": {
-            "options": {
-              "legend": {
-                "calcs": [
-                  "lastNotNull",
-                  "max"
-                ],
-                "displayMode": "table",
-                "placement": "bottom"
-              },
-              "tooltip": {
-                "mode": "multi"
-              }
-            },
             "fieldConfig": {
               "defaults": {
                 "color": {
                   "mode": "palette-classic"
                 },
                 "custom": {
-                  "lineWidth": 1,
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
                   "fillOpacity": 10,
-                  "spanNulls": false
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
                 },
                 "unit": "bytes"
               },
@@ -607,610 +255,210 @@
                   ]
                 }
               ]
-            }
-          }
-        },
-        "description": "Resident, anonymous heap, and anonymous huge-page memory usage."
-      }
-    },
-    "gc-rate": {
-      "kind": "Panel",
-      "spec": {
-        "id": 11,
-        "title": "GC Collect Rate",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "sum(rate(va_gc_collects_total{job=~\"$job\"}[$__rate_interval]))",
-                      "legendFormat": "gc/s"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "timeseries",
-          "version": "13.1.2",
-          "spec": {
-            "options": {
-              "legend": {
-                "calcs": [
-                  "lastNotNull"
-                ],
-                "displayMode": "table",
-                "placement": "bottom"
-              },
-              "tooltip": {
-                "mode": "multi"
-              }
             },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "palette-classic"
-                },
-                "custom": {
-                  "lineWidth": 1,
-                  "fillOpacity": 10,
-                  "spanNulls": false
-                },
-                "unit": "short"
-              },
-              "overrides": []
-            }
-          }
-        },
-        "description": "Aggregate garbage-collection rate."
-      }
-    },
-    "snapshot-cycle-rate": {
-      "kind": "Panel",
-      "spec": {
-        "id": 20,
-        "title": "Snapshot Cycle Rate",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "sum(rate(va_snapshot_cycles_total{job=~\"$job\"}[$__rate_interval]))",
-                      "legendFormat": "cycles/s"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "timeseries",
-          "version": "13.1.2",
-          "spec": {
             "options": {
-              "legend": {
-                "calcs": [
-                  "lastNotNull"
-                ],
-                "displayMode": "table",
-                "placement": "bottom"
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
               },
-              "tooltip": {
-                "mode": "multi"
-              }
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "palette-classic"
-                },
-                "custom": {
-                  "lineWidth": 1,
-                  "fillOpacity": 10,
-                  "spanNulls": false
-                },
-                "unit": "short"
-              },
-              "overrides": []
-            }
-          }
-        },
-        "description": "Aggregate snapshot cycles processed per second."
-      }
-    },
-    "snapshot-duration-quantiles": {
-      "kind": "Panel",
-      "spec": {
-        "id": 21,
-        "title": "Snapshot Duration (p50/p95/p99)",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "histogram_quantile(0.50, sum by (le) (rate(va_snapshot_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
-                      "legendFormat": "p50"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              },
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "histogram_quantile(0.95, sum by (le) (rate(va_snapshot_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
-                      "legendFormat": "p95"
-                    }
-                  },
-                  "refId": "B",
-                  "hidden": false
-                }
-              },
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "histogram_quantile(0.99, sum by (le) (rate(va_snapshot_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
-                      "legendFormat": "p99"
-                    }
-                  },
-                  "refId": "C",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "timeseries",
-          "version": "13.1.2",
-          "spec": {
-            "options": {
-              "legend": {
-                "calcs": [
-                  "mean",
-                  "max",
-                  "p95"
-                ],
-                "displayMode": "table",
-                "placement": "bottom"
-              },
-              "tooltip": {
-                "mode": "multi"
-              }
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "palette-classic"
-                },
-                "custom": {
-                  "lineWidth": 1,
-                  "fillOpacity": 10,
-                  "spanNulls": false
-                },
-                "unit": "s"
-              },
-              "overrides": []
-            }
-          }
-        },
-        "description": "Snapshot processing latency at p50, p95, and p99."
-      }
-    },
-    "queue-wait-quantiles": {
-      "kind": "Panel",
-      "spec": {
-        "id": 22,
-        "title": "Queue Wait Duration (p50/p95/p99)",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "histogram_quantile(0.50, sum by (le) (rate(va_snapshot_queue_wait_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
-                      "legendFormat": "p50"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              },
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "histogram_quantile(0.95, sum by (le) (rate(va_snapshot_queue_wait_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
-                      "legendFormat": "p95"
-                    }
-                  },
-                  "refId": "B",
-                  "hidden": false
-                }
-              },
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "histogram_quantile(0.99, sum by (le) (rate(va_snapshot_queue_wait_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
-                      "legendFormat": "p99"
-                    }
-                  },
-                  "refId": "C",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "timeseries",
-          "version": "13.1.2",
-          "spec": {
-            "options": {
-              "legend": {
-                "calcs": [
-                  "mean",
-                  "max",
-                  "p95"
-                ],
-                "displayMode": "table",
-                "placement": "bottom"
-              },
-              "tooltip": {
-                "mode": "multi"
-              }
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "palette-classic"
-                },
-                "custom": {
-                  "lineWidth": 1,
-                  "fillOpacity": 10,
-                  "spanNulls": false
-                },
-                "unit": "s"
-              },
-              "overrides": []
-            }
-          }
-        },
-        "description": "Runner queue wait latency at p50, p95, and p99."
-      }
-    },
-    "snapshot-duration-heatmap": {
-      "kind": "Panel",
-      "spec": {
-        "id": 23,
-        "title": "Snapshot Duration Heatmap",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "sum by (le) (increase(va_snapshot_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval]))",
-                      "legendFormat": "{{le}}",
-                      "format": "heatmap"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "heatmap",
-          "version": "13.1.2",
-          "spec": {
-            "options": {
-              "calculate": false,
-              "color": {
-                "mode": "scheme",
-                "scheme": "Spectral"
-              },
-              "exemplars": {
-                "color": "rgba(255,0,255,0.7)"
-              },
-              "filterValues": {
-                "le": 1e-09
-              },
-              "legend": {
-                "show": true
-              },
-              "rowsFrame": {
-                "layout": "auto"
-              },
-              "tooltip": {
-                "mode": "single",
-                "showColorScale": false,
-                "yHistogram": false
-              },
-              "yAxis": {
-                "axisPlacement": "left",
-                "decimals": 3,
-                "unit": "s"
-              }
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "scheme",
-                  "scheme": "Spectral"
-                },
-                "custom": {}
-              },
-              "overrides": []
-            }
-          }
-        },
-        "description": "Distribution of snapshot processing duration over time."
-      }
-    },
-    "queue-wait-heatmap": {
-      "kind": "Panel",
-      "spec": {
-        "id": 24,
-        "title": "Queue Wait Heatmap",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "sum by (le) (increase(va_snapshot_queue_wait_seconds_bucket{job=~\"$job\"}[$__rate_interval]))",
-                      "legendFormat": "{{le}}",
-                      "format": "heatmap"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "heatmap",
-          "version": "13.1.2",
-          "spec": {
-            "options": {
-              "calculate": false,
-              "color": {
-                "mode": "scheme",
-                "scheme": "Spectral"
-              },
-              "exemplars": {
-                "color": "rgba(255,0,255,0.7)"
-              },
-              "filterValues": {
-                "le": 1e-09
-              },
-              "legend": {
-                "show": true
-              },
-              "rowsFrame": {
-                "layout": "auto"
-              },
-              "tooltip": {
-                "mode": "single",
-                "showColorScale": false,
-                "yHistogram": false
-              },
-              "yAxis": {
-                "axisPlacement": "left",
-                "decimals": 3,
-                "unit": "s"
-              }
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "scheme",
-                  "scheme": "Spectral"
-                },
-                "custom": {}
-              },
-              "overrides": []
-            }
-          }
-        },
-        "description": "Distribution of runner queue wait duration over time."
-      }
-    },
-    "runner-queue-depth": {
-      "kind": "Panel",
-      "spec": {
-        "id": 30,
-        "title": "Runner Queue Depth",
-        "links": [],
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
-                    "datasource": {
-                      "name": "${DS_PROMETHEUS}"
-                    },
-                    "spec": {
-                      "expr": "va_runner_queue_size{job=~\"$job\"}",
-                      "legendFormat": "queue depth"
-                    }
-                  },
-                  "refId": "A",
-                  "hidden": false
-                }
-              }
-            ],
-            "transformations": [],
-            "queryOptions": {}
-          }
-        },
-        "vizConfig": {
-          "kind": "VizConfig",
-          "group": "timeseries",
-          "version": "13.1.2",
-          "spec": {
-            "options": {
               "legend": {
                 "calcs": [
                   "lastNotNull",
                   "max"
                 ],
                 "displayMode": "table",
-                "placement": "bottom"
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
               },
               "tooltip": {
-                "mode": "multi"
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "none"
               }
-            },
+            }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-11": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "sum(rate(va_gc_collects_total{job=~\"$job\"}[$__rate_interval]))",
+                      "legendFormat": "gc/s"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Aggregate garbage-collection rate.",
+        "id": 11,
+        "links": [],
+        "title": "GC Collect Rate",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
             "fieldConfig": {
               "defaults": {
                 "color": {
                   "mode": "palette-classic"
                 },
                 "custom": {
-                  "lineWidth": 1,
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
                   "fillOpacity": 10,
-                  "spanNulls": false
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
                 },
-                "unit": "short",
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "short"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-2": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "exemplar": false,
+                      "expr": "va_runner_queue_size{job=~\"$job\"}",
+                      "instant": true,
+                      "legendFormat": "queue",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Current number of pending items in the runner queue.",
+        "id": 2,
+        "links": [],
+        "title": "Queue Depth",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
                 "min": 0,
                 "thresholds": {
                   "mode": "absolute",
                   "steps": [
                     {
                       "color": "green",
-                      "value": -1.7976931348623157e+308
+                      "value": 0
                     },
                     {
                       "color": "yellow",
@@ -1221,21 +469,36 @@
                       "value": 20
                     }
                   ]
-                }
+                },
+                "unit": "short"
               },
               "overrides": []
+            },
+            "options": {
+              "colorMode": "background",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "percentChangeColorMode": "standard",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
             }
-          }
-        },
-        "description": "Runner queue depth over time."
+          },
+          "version": "13.1.2"
+        }
       }
     },
-    "queue-wait-average": {
+    "panel-20": {
       "kind": "Panel",
       "spec": {
-        "id": 31,
-        "title": "Queue Wait avg",
-        "links": [],
         "data": {
           "kind": "QueryGroup",
           "spec": {
@@ -1243,70 +506,993 @@
               {
                 "kind": "PanelQuery",
                 "spec": {
+                  "hidden": false,
                   "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
                     "datasource": {
                       "name": "${DS_PROMETHEUS}"
                     },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
                     "spec": {
-                      "expr": "sum(rate(va_snapshot_queue_wait_seconds_sum{job=~\"$job\"}[$__rate_interval])) / sum(rate(va_snapshot_queue_wait_seconds_count{job=~\"$job\"}[$__rate_interval]))",
-                      "legendFormat": "avg wait"
-                    }
+                      "expr": "sum(rate(va_snapshot_cycles_total{job=~\"$job\"}[$__rate_interval]))",
+                      "legendFormat": "cycles/s"
+                    },
+                    "version": "v0"
                   },
-                  "refId": "A",
-                  "hidden": false
+                  "refId": "A"
                 }
               }
             ],
-            "transformations": [],
-            "queryOptions": {}
+            "queryOptions": {},
+            "transformations": []
           }
         },
+        "description": "Aggregate snapshot cycles processed per second.",
+        "id": 20,
+        "links": [],
+        "title": "Snapshot Cycle Rate",
         "vizConfig": {
-          "kind": "VizConfig",
           "group": "timeseries",
-          "version": "13.1.2",
+          "kind": "VizConfig",
           "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "short"
+              },
+              "overrides": []
+            },
             "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-21": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "histogram_quantile(0.50, sum by (le) (rate(va_snapshot_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+                      "legendFormat": "p50"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "histogram_quantile(0.95, sum by (le) (rate(va_snapshot_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+                      "legendFormat": "p95"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "histogram_quantile(0.99, sum by (le) (rate(va_snapshot_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+                      "legendFormat": "p99"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Snapshot processing latency at p50, p95, and p99.",
+        "id": 21,
+        "links": [],
+        "title": "Snapshot Duration (p50/p95/p99)",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "mean",
+                  "max",
+                  "p95"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-22": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "histogram_quantile(0.50, sum by (le) (rate(va_snapshot_queue_wait_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+                      "legendFormat": "p50"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "histogram_quantile(0.95, sum by (le) (rate(va_snapshot_queue_wait_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+                      "legendFormat": "p95"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "histogram_quantile(0.99, sum by (le) (rate(va_snapshot_queue_wait_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+                      "legendFormat": "p99"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Runner queue wait latency at p50, p95, and p99.",
+        "id": 22,
+        "links": [],
+        "title": "Queue Wait Duration (p50/p95/p99)",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "mean",
+                  "max",
+                  "p95"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-23": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "sum by (le) (increase(va_snapshot_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval]))",
+                      "format": "heatmap",
+                      "legendFormat": "{{le}}"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Distribution of snapshot processing duration over time.",
+        "id": 23,
+        "links": [],
+        "title": "Snapshot Duration Heatmap",
+        "vizConfig": {
+          "group": "heatmap",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "scaleDistribution": {
+                    "type": "linear"
+                  }
+                }
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "calculate": false,
+              "cellGap": 1,
+              "color": {
+                "exponent": 0.5,
+                "fill": "dark-orange",
+                "mode": "scheme",
+                "reverse": false,
+                "scale": "exponential",
+                "scheme": "Spectral",
+                "steps": 64
+              },
+              "exemplars": {
+                "color": "rgba(255,0,255,0.7)"
+              },
+              "filterValues": {
+                "le": 1e-9
+              },
+              "legend": {
+                "show": true
+              },
+              "rowsFrame": {
+                "layout": "auto"
+              },
+              "tooltip": {
+                "mode": "single",
+                "showColorScale": false,
+                "yHistogram": false
+              },
+              "yAxis": {
+                "axisPlacement": "left",
+                "decimals": 3,
+                "reverse": false,
+                "unit": "s"
+              }
+            }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-24": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "sum by (le) (increase(va_snapshot_queue_wait_seconds_bucket{job=~\"$job\"}[$__rate_interval]))",
+                      "format": "heatmap",
+                      "legendFormat": "{{le}}"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Distribution of runner queue wait duration over time.",
+        "id": 24,
+        "links": [],
+        "title": "Queue Wait Heatmap",
+        "vizConfig": {
+          "group": "heatmap",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "scaleDistribution": {
+                    "type": "linear"
+                  }
+                }
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "calculate": false,
+              "cellGap": 1,
+              "color": {
+                "exponent": 0.5,
+                "fill": "dark-orange",
+                "mode": "scheme",
+                "reverse": false,
+                "scale": "exponential",
+                "scheme": "Spectral",
+                "steps": 64
+              },
+              "exemplars": {
+                "color": "rgba(255,0,255,0.7)"
+              },
+              "filterValues": {
+                "le": 1e-9
+              },
+              "legend": {
+                "show": true
+              },
+              "rowsFrame": {
+                "layout": "auto"
+              },
+              "tooltip": {
+                "mode": "single",
+                "showColorScale": false,
+                "yHistogram": false
+              },
+              "yAxis": {
+                "axisPlacement": "left",
+                "decimals": 3,
+                "reverse": false,
+                "unit": "s"
+              }
+            }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-3": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "exemplar": false,
+                      "expr": "va_thp_disabled{job=~\"$job\"}",
+                      "instant": true,
+                      "legendFormat": "thp_disabled",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Transparent Huge Pages status. Disabled is the expected state.",
+        "id": 3,
+        "links": [],
+        "title": "THP Disabled",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "text": "Enabled"
+                      },
+                      "1": {
+                        "color": "green",
+                        "text": "Disabled"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.5
+                    }
+                  ]
+                },
+                "unit": "short"
+              },
+              "overrides": []
+            },
+            "options": {
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "percentChangeColorMode": "standard",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-30": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "va_runner_queue_size{job=~\"$job\"}",
+                      "legendFormat": "queue depth"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Runner queue depth over time.",
+        "id": 30,
+        "links": [],
+        "title": "Runner Queue Depth",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 5
+                    },
+                    {
+                      "color": "red",
+                      "value": 20
+                    }
+                  ]
+                },
+                "unit": "short"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "max"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-31": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "sum(rate(va_snapshot_queue_wait_seconds_sum{job=~\"$job\"}[$__rate_interval])) / sum(rate(va_snapshot_queue_wait_seconds_count{job=~\"$job\"}[$__rate_interval]))",
+                      "legendFormat": "avg wait"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Average runner queue wait duration over time.",
+        "id": 31,
+        "links": [],
+        "title": "Queue Wait avg",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
               "legend": {
                 "calcs": [
                   "mean",
                   "max"
                 ],
                 "displayMode": "table",
-                "placement": "bottom"
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
               },
               "tooltip": {
-                "mode": "multi"
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "none"
               }
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "palette-classic"
-                },
-                "custom": {
-                  "lineWidth": 1,
-                  "fillOpacity": 10,
-                  "spanNulls": false
-                },
-                "unit": "s"
-              },
-              "overrides": []
             }
-          }
-        },
-        "description": "Average runner queue wait duration over time."
+          },
+          "version": "13.1.2"
+        }
       }
     },
-    "pv-post-rate": {
+    "panel-40": {
       "kind": "Panel",
       "spec": {
-        "id": 40,
-        "title": "PV Post Rate by PV",
-        "links": [],
         "data": {
           "kind": "QueryGroup",
           "spec": {
@@ -1314,69 +1500,120 @@
               {
                 "kind": "PanelQuery",
                 "spec": {
+                  "hidden": false,
                   "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
                     "datasource": {
                       "name": "${DS_PROMETHEUS}"
                     },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
                     "spec": {
                       "expr": "rate(va_pv_posts_total{job=~\"$job\"}[$__rate_interval])",
                       "legendFormat": "{{pv}}"
-                    }
+                    },
+                    "version": "v0"
                   },
-                  "refId": "A",
-                  "hidden": false
+                  "refId": "A"
                 }
               }
             ],
-            "transformations": [],
-            "queryOptions": {}
+            "queryOptions": {},
+            "transformations": []
           }
         },
+        "description": "Per-PV post rate.",
+        "id": 40,
+        "links": [],
+        "title": "PV Post Rate by PV",
         "vizConfig": {
-          "kind": "VizConfig",
           "group": "timeseries",
-          "version": "13.1.2",
+          "kind": "VizConfig",
           "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 5,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "short"
+              },
+              "overrides": []
+            },
             "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
               "legend": {
                 "calcs": [
                   "lastNotNull"
                 ],
                 "displayMode": "table",
-                "placement": "right"
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "right",
+                "showLegend": true
               },
               "tooltip": {
-                "mode": "multi"
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "none"
               }
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "palette-classic"
-                },
-                "custom": {
-                  "lineWidth": 1,
-                  "fillOpacity": 5,
-                  "spanNulls": false
-                },
-                "unit": "short"
-              },
-              "overrides": []
             }
-          }
-        },
-        "description": "Per-PV post rate."
+          },
+          "version": "13.1.2"
+        }
       }
     },
-    "pv-total-posts": {
+    "panel-41": {
       "kind": "Panel",
       "spec": {
-        "id": 41,
-        "title": "PV Total Posts",
-        "links": [],
         "data": {
           "kind": "QueryGroup",
           "spec": {
@@ -1384,62 +1621,83 @@
               {
                 "kind": "PanelQuery",
                 "spec": {
+                  "hidden": false,
                   "query": {
-                    "kind": "DataQuery",
-                    "group": "prometheus",
-                    "version": "v0",
                     "datasource": {
                       "name": "${DS_PROMETHEUS}"
                     },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
                     "spec": {
                       "expr": "va_pv_posts_total{job=~\"$job\"}",
-                      "legendFormat": "{{pv}}",
-                      "instant": true
-                    }
+                      "instant": true,
+                      "legendFormat": "{{pv}}"
+                    },
+                    "version": "v0"
                   },
-                  "refId": "A",
-                  "hidden": false
+                  "refId": "A"
                 }
               }
             ],
-            "transformations": [],
-            "queryOptions": {}
+            "queryOptions": {},
+            "transformations": []
           }
         },
+        "description": "Current cumulative post count for each PV.",
+        "id": 41,
+        "links": [],
+        "title": "PV Total Posts",
         "vizConfig": {
-          "kind": "VizConfig",
           "group": "table",
-          "version": "13.1.2",
+          "kind": "VizConfig",
           "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "short"
+              },
+              "overrides": []
+            },
             "options": {
+              "cellHeight": "sm",
               "footer": {
                 "show": false
               },
               "showHeader": true
-            },
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "palette-classic"
-                },
-                "custom": {
-                  "align": "auto"
-                },
-                "unit": "short"
-              },
-              "overrides": []
             }
-          }
-        },
-        "description": "Current cumulative post count for each PV."
+          },
+          "version": "13.1.2"
+        }
       }
     },
-    "logs": {
+    "panel-50": {
       "kind": "Panel",
       "spec": {
-        "id": 50,
-        "title": "Logs",
-        "links": [],
         "data": {
           "kind": "QueryGroup",
           "spec": {
@@ -1447,32 +1705,41 @@
               {
                 "kind": "PanelQuery",
                 "spec": {
+                  "hidden": false,
                   "query": {
-                    "kind": "DataQuery",
-                    "group": "loki",
-                    "version": "v0",
                     "datasource": {
-                      "name": "${DS_LOKI}"
+                      "name": "3NYPBf44k"
                     },
+                    "group": "loki",
+                    "kind": "DataQuery",
                     "spec": {
-                      "expr": "{namespace=~\"$namespace\", container=\"va\"}",
+                      "direction": "backward",
+                      "editorMode": "code",
+                      "expr": "{namespace=~\"$namespace\", container=~\"va\"}",
                       "queryType": "range"
-                    }
+                    },
+                    "version": "v0"
                   },
-                  "refId": "A",
-                  "hidden": false
+                  "refId": "A"
                 }
               }
             ],
-            "transformations": [],
-            "queryOptions": {}
+            "queryOptions": {},
+            "transformations": []
           }
         },
+        "description": "Virtual Accelerator logs from Loki for the selected namespace.",
+        "id": 50,
+        "links": [],
+        "title": "Logs",
         "vizConfig": {
-          "kind": "VizConfig",
           "group": "logs",
-          "version": "13.1.2",
+          "kind": "VizConfig",
           "spec": {
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
             "options": {
               "dedupStrategy": "none",
               "detailsMode": "sidebar",
@@ -1491,14 +1758,247 @@
               "timestampResolution": "ms",
               "unwrappedColumns": false,
               "wrapLogMessage": true
-            },
-            "fieldConfig": {
-              "defaults": {},
-              "overrides": []
             }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-6": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "sum(rate(va_snapshot_cycles_total{job=~\"$job\"}[$__rate_interval]))",
+                      "legendFormat": "cycles/s"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
           }
         },
-        "description": "Virtual Accelerator logs from Loki for the selected namespace."
+        "description": "Current aggregate snapshot processing rate.",
+        "id": 6,
+        "links": [],
+        "title": "Snapshot Rate",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "ops"
+              },
+              "overrides": []
+            },
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "percentChangeColorMode": "standard",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-7": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "histogram_quantile(0.95, sum by (le) (rate(va_snapshot_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+                      "legendFormat": "p95"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "95th percentile snapshot processing duration.",
+        "id": 7,
+        "links": [],
+        "title": "Snapshot p95",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "percentChangeColorMode": "standard",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            }
+          },
+          "version": "13.1.2"
+        }
+      }
+    },
+    "panel-8": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS_PROMETHEUS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "expr": "histogram_quantile(0.95, sum by (le) (rate(va_snapshot_queue_wait_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+                      "legendFormat": "p95"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "95th percentile time snapshots spend waiting in the runner queue.",
+        "id": 8,
+        "links": [],
+        "title": "Queue Wait p95",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "percentChangeColorMode": "standard",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            }
+          },
+          "version": "13.1.2"
+        }
       }
     }
   },
@@ -1509,7 +2009,6 @@
         {
           "kind": "RowsLayoutRow",
           "spec": {
-            "title": "Overview",
             "collapse": false,
             "layout": {
               "kind": "GridLayout",
@@ -1518,90 +2017,90 @@
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
-                      "x": 0,
-                      "y": 0,
-                      "width": 4,
-                      "height": 4,
                       "element": {
                         "kind": "ElementReference",
-                        "name": "uptime"
-                      }
+                        "name": "panel-1"
+                      },
+                      "height": 4,
+                      "width": 4,
+                      "x": 0,
+                      "y": 0
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-2"
+                      },
+                      "height": 4,
+                      "width": 4,
                       "x": 4,
-                      "y": 0,
-                      "width": 4,
-                      "height": 4,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "queue-depth-stat"
-                      }
+                      "y": 0
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-3"
+                      },
+                      "height": 4,
+                      "width": 4,
                       "x": 8,
-                      "y": 0,
-                      "width": 4,
-                      "height": 4,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "thp-disabled"
-                      }
+                      "y": 0
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-6"
+                      },
+                      "height": 4,
+                      "width": 4,
                       "x": 12,
-                      "y": 0,
-                      "width": 4,
-                      "height": 4,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "snapshot-rate-stat"
-                      }
+                      "y": 0
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-7"
+                      },
+                      "height": 4,
+                      "width": 4,
                       "x": 16,
-                      "y": 0,
-                      "width": 4,
-                      "height": 4,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "snapshot-p95-stat"
-                      }
+                      "y": 0
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-8"
+                      },
+                      "height": 4,
+                      "width": 4,
                       "x": 20,
-                      "y": 0,
-                      "width": 4,
-                      "height": 4,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "queue-wait-p95-stat"
-                      }
+                      "y": 0
                     }
                   }
                 ]
               }
-            }
+            },
+            "title": "Overview"
           }
         },
         {
           "kind": "RowsLayoutRow",
           "spec": {
-            "title": "Memory",
             "collapse": false,
             "layout": {
               "kind": "GridLayout",
@@ -1610,38 +2109,38 @@
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
-                      "x": 0,
-                      "y": 0,
-                      "width": 12,
-                      "height": 8,
                       "element": {
                         "kind": "ElementReference",
-                        "name": "memory-usage"
-                      }
+                        "name": "panel-10"
+                      },
+                      "height": 8,
+                      "width": 12,
+                      "x": 0,
+                      "y": 0
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-11"
+                      },
+                      "height": 8,
+                      "width": 12,
                       "x": 12,
-                      "y": 0,
-                      "width": 12,
-                      "height": 8,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "gc-rate"
-                      }
+                      "y": 0
                     }
                   }
                 ]
               }
-            }
+            },
+            "title": "Memory"
           }
         },
         {
           "kind": "RowsLayoutRow",
           "spec": {
-            "title": "Snapshot Performance",
             "collapse": false,
             "layout": {
               "kind": "GridLayout",
@@ -1650,77 +2149,77 @@
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
-                      "x": 0,
-                      "y": 0,
-                      "width": 8,
-                      "height": 6,
                       "element": {
                         "kind": "ElementReference",
-                        "name": "snapshot-cycle-rate"
-                      }
+                        "name": "panel-20"
+                      },
+                      "height": 6,
+                      "width": 8,
+                      "x": 0,
+                      "y": 0
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-21"
+                      },
+                      "height": 6,
+                      "width": 8,
                       "x": 8,
-                      "y": 0,
-                      "width": 8,
-                      "height": 6,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "snapshot-duration-quantiles"
-                      }
+                      "y": 0
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-22"
+                      },
+                      "height": 6,
+                      "width": 8,
                       "x": 16,
-                      "y": 0,
-                      "width": 8,
-                      "height": 6,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "queue-wait-quantiles"
-                      }
+                      "y": 0
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
-                      "x": 0,
-                      "y": 6,
-                      "width": 12,
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-23"
+                      },
                       "height": 8,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "snapshot-duration-heatmap"
-                      }
+                      "width": 12,
+                      "x": 0,
+                      "y": 6
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-24"
+                      },
+                      "height": 8,
+                      "width": 12,
                       "x": 12,
-                      "y": 6,
-                      "width": 12,
-                      "height": 8,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "queue-wait-heatmap"
-                      }
+                      "y": 6
                     }
                   }
                 ]
               }
-            }
+            },
+            "title": "Snapshot Performance"
           }
         },
         {
           "kind": "RowsLayoutRow",
           "spec": {
-            "title": "Queue",
             "collapse": false,
             "layout": {
               "kind": "GridLayout",
@@ -1729,38 +2228,38 @@
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
-                      "x": 0,
-                      "y": 0,
-                      "width": 12,
-                      "height": 6,
                       "element": {
                         "kind": "ElementReference",
-                        "name": "runner-queue-depth"
-                      }
+                        "name": "panel-30"
+                      },
+                      "height": 6,
+                      "width": 12,
+                      "x": 0,
+                      "y": 0
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-31"
+                      },
+                      "height": 6,
+                      "width": 12,
                       "x": 12,
-                      "y": 0,
-                      "width": 12,
-                      "height": 6,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "queue-wait-average"
-                      }
+                      "y": 0
                     }
                   }
                 ]
               }
-            }
+            },
+            "title": "Queue"
           }
         },
         {
           "kind": "RowsLayoutRow",
           "spec": {
-            "title": "PV Posts",
             "collapse": false,
             "layout": {
               "kind": "GridLayout",
@@ -1769,38 +2268,38 @@
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
-                      "x": 0,
-                      "y": 0,
-                      "width": 24,
-                      "height": 8,
                       "element": {
                         "kind": "ElementReference",
-                        "name": "pv-post-rate"
-                      }
+                        "name": "panel-40"
+                      },
+                      "height": 8,
+                      "width": 24,
+                      "x": 0,
+                      "y": 0
                     }
                   },
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
-                      "x": 0,
-                      "y": 8,
-                      "width": 24,
-                      "height": 8,
                       "element": {
                         "kind": "ElementReference",
-                        "name": "pv-total-posts"
-                      }
+                        "name": "panel-41"
+                      },
+                      "height": 8,
+                      "width": 24,
+                      "x": 0,
+                      "y": 8
                     }
                   }
                 ]
               }
-            }
+            },
+            "title": "PV Posts"
           }
         },
         {
           "kind": "RowsLayoutRow",
           "spec": {
-            "title": "Logs",
             "collapse": false,
             "layout": {
               "kind": "GridLayout",
@@ -1809,34 +2308,30 @@
                   {
                     "kind": "GridLayoutItem",
                     "spec": {
-                      "x": 0,
-                      "y": 0,
-                      "width": 24,
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-50"
+                      },
                       "height": 16,
-                      "element": {
-                        "kind": "ElementReference",
-                        "name": "logs"
-                      }
+                      "width": 24,
+                      "x": 0,
+                      "y": 0
                     }
                   }
                 ]
               }
-            }
+            },
+            "title": "Logs"
           }
         }
       ]
     }
   },
   "links": [],
+  "liveNow": false,
   "preload": false,
-  "tags": [
-    "virtual-accelerator",
-    "digital-twin"
-  ],
+  "tags": [],
   "timeSettings": {
-    "timezone": "browser",
-    "from": "now-1h",
-    "to": "now",
     "autoRefresh": "30s",
     "autoRefreshIntervals": [
       "5s",
@@ -1850,115 +2345,122 @@
       "2h",
       "1d"
     ],
+    "fiscalYearStartMonth": 0,
+    "from": "now-1h",
     "hideTimepicker": false,
-    "fiscalYearStartMonth": 0
+    "timezone": "browser",
+    "to": "now"
   },
   "title": "Virtual Accelerator Digital Twin",
   "variables": [
     {
-      "kind": "DatasourceVariable",
-      "spec": {
-        "name": "DS_PROMETHEUS",
-        "pluginId": "prometheus",
-        "refresh": "onDashboardLoad",
-        "regex": "",
-        "current": {
-          "text": "",
-          "value": ""
-        },
-        "options": [],
-        "multi": false,
-        "includeAll": false,
-        "label": "Prometheus",
-        "hide": "hideVariable",
-        "skipUrlSync": true,
-        "allowCustomValue": true
-      }
-    },
-    {
-      "kind": "DatasourceVariable",
-      "spec": {
-        "name": "DS_LOKI",
-        "pluginId": "loki",
-        "refresh": "onDashboardLoad",
-        "regex": "",
-        "current": {
-          "text": "",
-          "value": ""
-        },
-        "options": [],
-        "multi": false,
-        "includeAll": false,
-        "label": "Loki",
-        "hide": "hideVariable",
-        "skipUrlSync": true,
-        "allowCustomValue": true
-      }
-    },
-    {
       "kind": "QueryVariable",
       "spec": {
-        "name": "job",
-        "current": {
-          "text": "",
-          "value": ""
-        },
-        "label": "Job",
-        "hide": "dontHide",
-        "refresh": "onTimeRangeChanged",
-        "skipUrlSync": false,
-        "query": {
-          "kind": "DataQuery",
-          "group": "prometheus",
-          "version": "v0",
-          "datasource": {
-            "name": "${DS_PROMETHEUS}"
-          },
-          "spec": {
-            "query": "label_values(va_uptime_seconds, job)",
-            "refId": "StandardVariableQuery"
-          }
-        },
-        "regex": "",
-        "sort": "alphabeticalAsc",
-        "definition": "label_values(va_uptime_seconds, job)",
-        "options": [],
-        "multi": false,
-        "includeAll": true,
-        "allowCustomValue": true
-      }
-    },
-    {
-      "kind": "QueryVariable",
-      "spec": {
-        "name": "namespace",
+        "allowCustomValue": true,
         "current": {
           "text": "vcluster--ad-accel-online-ml-dev",
           "value": "vcluster--ad-accel-online-ml-dev"
         },
-        "label": "Namespace",
-        "hide": "dontHide",
-        "refresh": "onTimeRangeChanged",
-        "skipUrlSync": false,
-        "query": {
-          "kind": "DataQuery",
-          "group": "loki",
-          "version": "v0",
-          "datasource": {
-            "name": "${DS_LOKI}"
-          },
-          "spec": {
-            "query": "label_values(namespace)",
-            "refId": "StandardVariableQuery"
-          }
-        },
-        "regex": "",
-        "sort": "alphabeticalAsc",
         "definition": "label_values(namespace)",
-        "options": [],
-        "multi": false,
+        "hide": "dontHide",
         "includeAll": false,
-        "allowCustomValue": true
+        "label": "Namespace",
+        "multi": false,
+        "name": "namespace",
+        "options": [],
+        "query": {
+          "datasource": {
+            "name": "940RXge4k"
+          },
+          "group": "prometheus",
+          "kind": "DataQuery",
+          "spec": {
+            "qryType": 1,
+            "query": "label_values(namespace)",
+            "refId": "PrometheusVariableQueryEditor-VariableQuery"
+          },
+          "version": "v0"
+        },
+        "refresh": "onTimeRangeChanged",
+        "regex": ".*ad-accel-online-ml.*",
+        "regexApplyTo": "value",
+        "skipUrlSync": false,
+        "sort": "alphabeticalAsc"
+      }
+    },
+    {
+      "kind": "QueryVariable",
+      "spec": {
+        "allowCustomValue": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "definition": "label_values(va_uptime_seconds{job=\"kubernetes-pods\"},job)",
+        "hide": "dontHide",
+        "includeAll": true,
+        "label": "Job",
+        "multi": false,
+        "name": "job",
+        "options": [],
+        "query": {
+          "datasource": {
+            "name": "${DS_PROMETHEUS}"
+          },
+          "group": "prometheus",
+          "kind": "DataQuery",
+          "spec": {
+            "qryType": 1,
+            "query": "label_values(va_uptime_seconds{job=\"kubernetes-pods\"},job)",
+            "refId": "PrometheusVariableQueryEditor-VariableQuery"
+          },
+          "version": "v0"
+        },
+        "refresh": "onTimeRangeChanged",
+        "regex": "",
+        "regexApplyTo": "value",
+        "skipUrlSync": false,
+        "sort": "alphabeticalAsc"
+      }
+    },
+    {
+      "kind": "DatasourceVariable",
+      "spec": {
+        "allowCustomValue": true,
+        "current": {
+          "text": "Prometheus",
+          "value": "940RXge4k"
+        },
+        "hide": "hideVariable",
+        "includeAll": false,
+        "label": "Prometheus",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "pluginId": "prometheus",
+        "refresh": "onDashboardLoad",
+        "regex": "Prometheus",
+        "skipUrlSync": true
+      }
+    },
+    {
+      "kind": "DatasourceVariable",
+      "spec": {
+        "allowCustomValue": true,
+        "current": {
+          "text": "Loki",
+          "value": "3NYPBf44k"
+        },
+        "hide": "hideVariable",
+        "includeAll": false,
+        "label": "Loki",
+        "multi": false,
+        "name": "DS_LOKI",
+        "options": [],
+        "pluginId": "loki",
+        "refresh": "onDashboardLoad",
+        "regex": "Loki",
+        "skipUrlSync": true
       }
     }
   ]
