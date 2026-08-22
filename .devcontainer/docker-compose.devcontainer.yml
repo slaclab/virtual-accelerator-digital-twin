@@ -38,7 +38,7 @@ services:
       - mock-ioc
 
   # ── Mock CA/PVA IOC ───────────────────────────────────────────────────
-  # Serves the 16 real snapshot PVs with LCLS design-value nominals + noise.
+  # Serves all PVs from pv_list.txt (auto-classified: float/int/string/array).
   # pvua auto-discovers protocol (PVA first, CA fallback).
   mock-ioc:
     image: va-digital-twin:base
@@ -52,3 +52,4 @@ services:
       LOG_LEVEL: INFO
       EPICS_PVA_AUTO_ADDR_LIST: "YES"
       EPICS_PVA_SERVER_PORT: "5076"
+      PV_LIST: /workspace/scripts/pv_list.txt

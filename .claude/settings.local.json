@@ -28,7 +28,10 @@
       "Bash(docker restart *)",
       "mcp__cognee__recall",
       "mcp__cognee__remember",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(pkill -f mock_ca_ioc.py)",
+      "Bash(grep -n \"BCTRL$\" /Users/bisegni/dev/github/slaclab/virtual-accelerator-digital-twin/scripts/pv_list.txt)",
+      "Bash(grep *)"
     ]
   }
 }
