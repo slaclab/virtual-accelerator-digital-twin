@@ -46,7 +46,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TORCH_NUM_THREADS=2 \
     EPICS_PVA_AUTO_ADDR_LIST=YES \
     PYEPICS_LIBCA=/opt/conda/epics/lib/linux-x86_64/libca.so \
-    MALLOC_ARENA_MAX=2
+    MALLOC_ARENA_MAX=1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash bzip2 curl git patchelf \
@@ -94,6 +94,16 @@ FROM base AS production
 COPY run.py .
 COPY entrypoint.sh .
 COPY scripts/ ./scripts/
+
+# Patch 1/2 — lume_bmad Fortran heap leak (lume_bmad/model.py):
+#   BUG A: initial_particles.setter called tao "set beam comb_ds_save" every cycle
+#          → Tao reallocated ~3M-double comb arrays per cycle → Fortran heap grew ~180 MB/hr
+#   BUG B: initial_particles.setter called update_state() redundantly
+#          → LUMEBmadModel._set() always calls update_state() right after, doubling Tao reads
+#   BUG C: LUMEBmadModel._set() called _refresh_dynamic_action_variables() redundantly
+#          → setter already calls it; _set() duplicated the tao_global + bunch_comb reads
+# TODO: remove once fixes land upstream in lume-science/lume-bmad
+COPY todo/patches/lume_bmad_model.patch.py /opt/conda/lib/python3.12/site-packages/lume_bmad/model.py
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["5075"]
