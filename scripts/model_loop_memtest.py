@@ -159,10 +159,8 @@ def _numeric_settable(model) -> list:
     return result
 
 
-def run_batch(model, n_cycles: int) -> None:
-    settable = _numeric_settable(model)
-    all_vars = list(model.supported_variables.keys())
-    for _ in range(n_cycles):
+def run_batch(model, n_cycles: int, settable: list, all_vars: list) -> None:
+    for i in range(n_cycles):
         cached = model.get(settable)
         new_values = {}
         for k in settable:
@@ -177,10 +175,13 @@ def run_batch(model, n_cycles: int) -> None:
             try:
                 arr = np.asarray(v)
                 if np.issubdtype(arr.dtype, np.number):
-                    _ = arr.sum()
+                    _s = arr.sum()  # noqa: F841 — don't shadow outer loop var
             except Exception:
                 pass
         del cached, new_values, out_values
+
+        if (i + 1) % 50 == 0:
+            _malloc_trim()
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +293,12 @@ def parse_args():
 
 
 def main() -> int:
+    # Note: MALLOC_ARENA_MAX must be set in the environment BEFORE Python starts
+    # (glibc reads it at first malloc during interpreter init). The value set
+    # here via os.environ is printed for diagnostics only — it does not take effect.
+    arena_max = os.environ.get("MALLOC_ARENA_MAX", "not set")
+    print(f"# MALLOC_ARENA_MAX={arena_max} (must be set before Python launch to take effect)",
+          file=sys.stderr, flush=True)
     _disable_thp()
     args = parse_args()
 
@@ -334,13 +341,17 @@ def main() -> int:
 
     tracemalloc.start()
 
+    # Precompute variable lists once — model topology never changes
+    _settable = _numeric_settable(model) if runner is None else []
+    _all_vars = list(model.supported_variables.keys()) if runner is None else []
+
     # Warm-up
     print("# warming up...", file=sys.stderr, flush=True)
     for _ in range(3):
         if runner is not None:
             run_snapshot_batch(runner, cycles_per_batch, args.snapshot_interval)
         else:
-            run_batch(model, cycles_per_batch)
+            run_batch(model, cycles_per_batch, _settable, _all_vars)
     gc.collect()
 
     t_start = time.monotonic()
@@ -358,7 +369,7 @@ def main() -> int:
             if runner is not None:
                 run_snapshot_batch(runner, cycles_per_batch, args.snapshot_interval)
             else:
-                run_batch(model, cycles_per_batch)
+                run_batch(model, cycles_per_batch, _settable, _all_vars)
             total_cycles += cycles_per_batch
 
             now = time.monotonic()

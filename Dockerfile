@@ -45,7 +45,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OPENBLAS_NUM_THREADS=2 \
     TORCH_NUM_THREADS=2 \
     EPICS_PVA_AUTO_ADDR_LIST=YES \
-    PYEPICS_LIBCA=/opt/conda/epics/lib/linux-x86_64/libca.so
+    PYEPICS_LIBCA=/opt/conda/epics/lib/linux-x86_64/libca.so \
+    MALLOC_ARENA_MAX=2
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash bzip2 curl git patchelf \

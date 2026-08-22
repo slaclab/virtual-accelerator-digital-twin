@@ -38,4 +38,9 @@ fi
 
 echo "PVA server listening on port: $PORT (tcp), broadcast: $((PORT + 1)) (udp)"
 
+# Limit glibc to 2 arenas. Must be set before Python starts — glibc reads
+# MALLOC_ARENA_MAX at first malloc(), which happens during interpreter init,
+# so os.environ.setdefault() inside Python is always too late.
+export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
+
 exec python run.py
