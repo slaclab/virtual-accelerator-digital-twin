@@ -1,7 +1,13 @@
 from os import getcwd
+import ctypes
 import logging
 from beamphysics import ParticleGroup
 from typing import Any
+
+try:
+    _libc = ctypes.CDLL("libc.so.6")
+except OSError:
+    _libc = None
 from lume.staged_model import InitialParticlesMixIn, FinalParticlesMixIn
 from pytao import Tao
 from lume_bmad.utils import (
@@ -170,6 +176,13 @@ class LUMEBmadModel(ActionModel, InitialParticlesMixIn, FinalParticlesMixIn):
 
         # update state with new input / output values
         self.update_state()
+
+        # Return glibc heap fragmentation to OS after every simulation cycle.
+        # pytao output buffers + numpy temporaries from update_state() fragment
+        # the heap between live allocations; malloc_trim() compacts and returns
+        # top-of-heap free pages via sbrk(-n).
+        if _libc is not None:
+            _libc.malloc_trim(0)
 
     def register_action_variable(self, variable: ActionVariable) -> None:
         """
