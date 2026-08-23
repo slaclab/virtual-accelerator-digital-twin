@@ -255,6 +255,15 @@ class LUMEBmadModel(ActionModel, InitialParticlesMixIn, FinalParticlesMixIn):
             particles.write(fname)
             self.simulator.cmd(f"set beam_init position_file = {fname}")
 
+            # Reclaim HDF5 internal free lists leaked during file read.
+            # libhdf5 accumulates metadata cache entries on each H5Fopen/H5Fclose
+            # cycle (~6 KB/call). Without this, heap grows ~11 MB/hr.
+            try:
+                import h5py
+                h5py.h5.garbage_collect()
+            except Exception:
+                pass
+
             # Refresh dynamic action variables to reflect new particle distribution.
             # NOTE: comb_ds_save is static config set once at __init__ — not per-cycle.
             # NOTE: update_state() omitted here; LUMEBmadModel._set() calls it right after.
