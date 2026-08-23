@@ -8,6 +8,15 @@ generatorOptions:
 images:
   - name: ghcr.io/slaclab/virtual-accelerator-digital-twin
     newTag: feature-prometheus
+
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+    target:
+      kind: Deployment
+      name: virtual-accelerator
 configMapGenerator:
   - name: va-config
     namespace: virtual-accelerator
