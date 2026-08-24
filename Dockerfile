@@ -105,5 +105,12 @@ COPY scripts/ ./scripts/
 # TODO: remove once fixes land upstream in lume-science/lume-bmad
 COPY todo/patches/lume_bmad_model.patch.py /opt/conda/lib/python3.12/site-packages/lume_bmad/model.py
 
+# Patch 2/2 — lume StagedModel leak (lume/staged_model.py):
+#   Prod runs MODEL=cu_hxr_staged → StagedModel._set() runs every cycle but had no
+#   malloc_trim / h5py.h5.garbage_collect(). glibc heap fragmentation and HDF5 internal
+#   free lists accumulated across all stages, causing RSS growth identical to the bmad leak.
+# TODO: remove once fixes land upstream in lume-science/lume
+COPY todo/patches/lume_staged_model.patch.py /opt/conda/lib/python3.12/site-packages/lume/staged_model.py
+
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["5075"]

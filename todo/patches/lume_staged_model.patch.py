@@ -1,10 +1,17 @@
 from abc import ABC, abstractmethod
+import ctypes
+import gc
 from typing import Any
 
 from beamphysics import ParticleGroup
 
 from lume.model import LUMEModel
 from lume.variables.variable import Variable
+
+try:
+    _libc = ctypes.CDLL("libc.so.6")
+except OSError:
+    _libc = None
 
 
 class InitialParticlesMixIn(ABC):
@@ -117,6 +124,17 @@ class StagedModel(LUMEModel):
 
             if isinstance(model, FinalParticlesMixIn):
                 incoming_particles = model.final_particles
+
+        # Reclaim glibc heap fragmentation and HDF5 internal free lists
+        # accumulated across all stages this cycle.
+        gc.collect()
+        if _libc is not None:
+            _libc.malloc_trim(0)
+        try:
+            import h5py
+            h5py.h5.garbage_collect()
+        except Exception:
+            pass
 
     def reset(self):
         for model in self.lume_model_instances:
