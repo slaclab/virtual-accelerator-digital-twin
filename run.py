@@ -12,6 +12,7 @@ Configurable via environment variables:
     PV_RENAMES     - JSON dict of PV name renames applied before suffix (default: none)
     METRICS_PORT   - Port for Prometheus /metrics endpoint (default: 9090, 0=disabled)
     MEM_LOG_INTERVAL_S - Memory log interval in seconds (default: 300)
+    TRACEMALLOC_TOP_N  - Top-N Python allocation sites to log/export (default: 10, 0=disabled)
 """
 
 import ctypes
@@ -19,6 +20,7 @@ import json
 import os
 import sys
 import threading
+import tracemalloc
 
 from prometheus_client import (
     Counter,
@@ -48,6 +50,9 @@ _VA_SNAP_WAIT       = Histogram("va_snapshot_queue_wait_seconds",
                                 "Time waiting for queue to drain before take_snapshot()",
                                 buckets=[0, .001, .005, .01, .05, .1, .5, 1.0, 5.0])
 _VA_GC_COLLECT      = Counter("va_gc_collects",          "GC+malloc_trim invocations")
+
+_VA_PY_HEAP         = Gauge("va_py_heap_mb",             "Python heap via tracemalloc (MB)")
+_VA_PY_ALLOC        = Gauge("va_py_alloc_bytes",         "Top-N Python alloc site size (bytes)", ["location"])
 
 _VA_PV_POSTS        = Counter("va_pv_posts",             "SharedPV post() calls", ["pv"])
 
@@ -89,6 +94,22 @@ def _log_memory(label: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Python heap
+# ---------------------------------------------------------------------------
+
+def _py_heap_mb(top_n: int = 0) -> float:
+    snap = tracemalloc.take_snapshot()
+    stats = snap.statistics("lineno")
+    total = sum(s.size for s in stats) / 1024 / 1024
+    if top_n > 0:
+        print(f"# Top {top_n} Python allocations:", file=sys.stderr, flush=True)
+        for s in stats[:top_n]:
+            print(f"#   {s.size/1024:.1f} KB  {s.traceback.format()[0]}",
+                  file=sys.stderr, flush=True)
+    return total
+
+
+# ---------------------------------------------------------------------------
 # THP
 # ---------------------------------------------------------------------------
 
@@ -123,12 +144,16 @@ def _disable_thp() -> None:
 # Background mem logger
 # ---------------------------------------------------------------------------
 
-def _start_mem_logger(interval_s: int, runner) -> None:
-    """Background thread: log RSS/AnonHugePages and update gauges every interval_s seconds."""
+def _start_mem_logger(interval_s: int, runner, top_n: int = 10) -> None:
+    """Background thread: log RSS/AnonHugePages and update gauges every interval_s seconds.
+    Also scans tracemalloc every 60 s when top_n > 0."""
     import time
 
     def _loop():
         t0 = time.monotonic()
+        _prev_locations: set = set()
+        tm_tick = 0.0
+
         while True:
             time.sleep(interval_s)
             elapsed = time.monotonic() - t0
@@ -138,6 +163,26 @@ def _start_mem_logger(interval_s: int, runner) -> None:
                 _VA_QUEUE_SIZE.set(runner.queue.qsize())
             except Exception:
                 pass
+
+            if top_n > 0 and tracemalloc.is_tracing() and (time.monotonic() - tm_tick) >= 60:
+                tm_tick = time.monotonic()
+                snap = tracemalloc.take_snapshot()
+                stats = snap.statistics("lineno")
+                total = sum(s.size for s in stats) / 1024 / 1024
+                _VA_PY_HEAP.set(total)
+                print(f"# Top {top_n} Python allocations:", file=sys.stderr, flush=True)
+                new_locations: set = set()
+                for s in stats[:top_n]:
+                    loc = s.traceback.format()[0]
+                    print(f"#   {s.size/1024:.1f} KB  {loc}", file=sys.stderr, flush=True)
+                    _VA_PY_ALLOC.labels(location=loc).set(s.size)
+                    new_locations.add(loc)
+                for old in _prev_locations - new_locations:
+                    try:
+                        _VA_PY_ALLOC.remove(old)
+                    except Exception:
+                        pass
+                _prev_locations = new_locations
 
     threading.Thread(target=_loop, daemon=True, name="mem-logger").start()
 
@@ -178,6 +223,10 @@ def main():
     pv_suffix_ph      = os.environ.get("PV_SUFFIX_PH", "")
     pv_renames        = json.loads(os.environ.get("PV_RENAMES", "{}"))
     metrics_port      = int(os.environ.get("METRICS_PORT", "9090"))
+    top_n             = int(os.environ.get("TRACEMALLOC_TOP_N", "10"))
+
+    if top_n > 0:
+        tracemalloc.start()
 
     import logging
     logging.basicConfig(level=getattr(logging, log_level))
@@ -289,7 +338,7 @@ def main():
         threading.Thread(target=snapshot_loop, args=(runner,), daemon=True).start()
 
     _log_memory("runner-started")
-    _start_mem_logger(interval_s=mem_log_interval_s, runner=runner)
+    _start_mem_logger(interval_s=mem_log_interval_s, runner=runner, top_n=top_n)
 
     runner.run()
 

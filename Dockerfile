@@ -30,6 +30,7 @@ RUN apt-get update && \
         ethtool \
         socat \
         nmap \
+        libtcmalloc-minimal4 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV TZ=America/Los_Angeles
@@ -46,7 +47,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TORCH_NUM_THREADS=2 \
     EPICS_PVA_AUTO_ADDR_LIST=YES \
     PYEPICS_LIBCA=/opt/conda/epics/lib/linux-x86_64/libca.so \
-    MALLOC_ARENA_MAX=1
+    MALLOC_ARENA_MAX=1 \
+    LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash bzip2 curl git patchelf \
