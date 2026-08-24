@@ -137,19 +137,6 @@ def _start_mem_logger(interval_s: int, runner, top_n: int = 10) -> None:
         _prev_locations: set = set()
         tm_tick = 0.0
         _bin_path = "/tmp/memray_snap.bin"
-        _tracker = None
-
-        # Start memray tracker once; stop/read/restart every 60 s window
-        if top_n > 0:
-            try:
-                import memray
-                _tracker = memray.Tracker(
-                    destination=memray.FileDestination(_bin_path, overwrite=True)
-                )
-                _tracker.__enter__()
-            except Exception as e:
-                print(f"[memray] init error: {e}", file=sys.stderr, flush=True)
-                _tracker = None
 
         while True:
             time.sleep(interval_s)
@@ -161,12 +148,18 @@ def _start_mem_logger(interval_s: int, runner, top_n: int = 10) -> None:
             except Exception:
                 pass
 
-            if top_n > 0 and _tracker is not None and (time.monotonic() - tm_tick) >= 60:
+            if top_n > 0 and (time.monotonic() - tm_tick) >= 60:
                 tm_tick = time.monotonic()
                 try:
                     import memray
-                    # Stop current tracker to flush the snapshot file
-                    _tracker.__exit__(None, None, None)
+                    # One-shot snapshot: track only long-lived allocations for a
+                    # brief window. native_traces=False avoids hooking C malloc,
+                    # preventing interference with the model thread.
+                    with memray.Tracker(
+                        destination=memray.FileDestination(_bin_path, overwrite=True),
+                        native_traces=False,
+                    ):
+                        time.sleep(0.5)
 
                     total_bytes = 0
                     alloc_sites: list = []
@@ -194,12 +187,6 @@ def _start_mem_logger(interval_s: int, runner, top_n: int = 10) -> None:
                         except Exception:
                             pass
                     _prev_locations = new_locations
-
-                    # Restart tracker for next window
-                    _tracker = memray.Tracker(
-                        destination=memray.FileDestination(_bin_path, overwrite=True)
-                    )
-                    _tracker.__enter__()
                 except Exception as e:
                     print(f"[memray] scan error: {e}", file=sys.stderr, flush=True)
 
