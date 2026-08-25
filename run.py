@@ -159,12 +159,12 @@ def _start_mem_logger(interval_s: int, runner, top_n: int = 10) -> None:
                         destination=memray.FileDestination(_bin_path, overwrite=True),
                         native_traces=False,
                     ):
-                        time.sleep(0.5)
+                        time.sleep(2.0)
 
                     total_bytes = 0
                     alloc_sites: list = []
                     with memray.FileReader(_bin_path) as reader:
-                        for alloc in reader.get_high_watermark_allocation_records(merge_threads=True):
+                        for alloc in reader.get_leaked_allocation_records(merge_threads=True):
                             total_bytes += alloc.size
                             tb = alloc.stack_trace()
                             loc = str(tb[0]) if tb else "unknown"

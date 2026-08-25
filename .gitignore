@@ -11,3 +11,4 @@ build/
 claude/
 .memory/
 *.h5
+.claude/
