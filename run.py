@@ -322,7 +322,13 @@ def main():
                     _VA_SNAP_WAIT.observe(_time.monotonic() - _wait_t0)
                     _VA_QUEUE_SIZE.set(runner.queue.qsize())
 
-                    runner.take_snapshot()
+                    try:
+                        runner.take_snapshot()
+                    except (TimeoutError, Exception) as e:
+                        print(f"[snapshot] WARNING: take_snapshot() failed: {e}",
+                              file=sys.stderr, flush=True)
+                        _time.sleep(_snapshot_interval)
+                        continue
                     cycle += 1
 
                     _VA_SNAP_CYCLES.inc()
