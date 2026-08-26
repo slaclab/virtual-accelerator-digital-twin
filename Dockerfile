@@ -114,5 +114,15 @@ COPY todo/patches/lume_bmad_model.patch.py /opt/conda/lib/python3.12/site-packag
 # TODO: remove once fixes land upstream in lume-science/lume
 COPY todo/patches/lume_staged_model.patch.py /opt/conda/lib/python3.12/site-packages/lume/staged_model.py
 
+# Patch 3/3 — lume-pva SharedPV.post() C++ heap leak (lume_pva/runner.py + variables.py):
+#   Each simulation cycle posted ~180 output PVs. Every post() call constructed a fresh
+#   Value(type_, {...}) via pack_value() — a new C++ PVStructure allocation invisible to
+#   Python tracemalloc/memray. RSS grew monotonically at ~X MB/hr even with Python heap flat.
+#   Fix: cache one Value per PV and mutate it in-place via update_value(); pvxs assign()
+#   deep-copies into internal storage on post() so the cached object is never aliased.
+# TODO: remove once fixes land upstream in lume-science/lume-pva
+COPY todo/patches/lume_pva_runner.patch.py /opt/conda/lib/python3.12/site-packages/lume_pva/runner.py
+COPY todo/patches/lume_pva_variables.patch.py /opt/conda/lib/python3.12/site-packages/lume_pva/variables.py
+
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["5075"]
