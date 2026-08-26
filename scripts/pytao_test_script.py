@@ -20,6 +20,7 @@ import sys
 import time
 
 import numpy as np
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
 from pytao import Tao
 
 LCLS_LATTICE = os.environ.get("LCLS_LATTICE", "/opt/lcls-lattice")
@@ -39,6 +40,15 @@ try:
     _libc = ctypes.CDLL("libc.so.6")
 except OSError:
     _libc = None
+
+# Prometheus metrics
+_PYTAO_RSS = Gauge("pytao_rss_bytes", "Process RSS in bytes (pytao-only test)")
+_PYTAO_CYCLES = Counter("pytao_cycles_total", "Total pytao simulation cycles")
+_PYTAO_CYCLE_DURATION = Histogram("pytao_cycle_duration_seconds",
+                                  "Time per set_quads + read_td11 cycle",
+                                  buckets=[.05, .1, .25, .5, 1.0, 2.5, 5.0])
+_PYTAO_RSS_DELTA = Gauge("pytao_rss_delta_mb", "RSS growth from baseline (MB)")
+METRICS_PORT = int(os.environ.get("METRICS_PORT", "9090"))
 
 
 def _rss_mb() -> float:
@@ -120,10 +130,16 @@ def main():
     print(f"# Press Ctrl+C to stop", file=sys.stderr, flush=True)
     print(file=sys.stderr, flush=True)
 
+    if METRICS_PORT > 0:
+        start_http_server(METRICS_PORT)
+        print(f"# Prometheus metrics on :{METRICS_PORT}/metrics", file=sys.stderr, flush=True)
+    _PYTAO_RSS.set(rss_baseline * 1024 * 1024)
+
     deadline = t_start + DURATION_S if DURATION_S > 0 else float("inf")
 
     try:
         while time.monotonic() < deadline:
+            cycle_t0 = time.monotonic()
             k1_values = {
                 q: rng.uniform(*sorted((k1 * (1 - K1_REL_RANGE), k1 * (1 + K1_REL_RANGE))))
                 for q, k1 in design_k1.items()
@@ -132,6 +148,9 @@ def main():
             r = read_td11(tao)
             total_cycles += 1
 
+            _PYTAO_CYCLES.inc()
+            _PYTAO_CYCLE_DURATION.observe(time.monotonic() - cycle_t0)
+
             now = time.monotonic()
             if now - t_last_log >= LOG_INTERVAL_S:
                 elapsed = now - t_start
@@ -139,6 +158,9 @@ def main():
                 cps = total_cycles / elapsed
                 rss_delta = rss - rss_baseline
                 print(f"{elapsed:.1f},{rss:.1f},{total_cycles},{cps:.1f},{rss_delta:+.1f}", flush=True)
+
+                _PYTAO_RSS.set(rss * 1024 * 1024)
+                _PYTAO_RSS_DELTA.set(rss_delta)
 
                 # Log to stderr for container logs
                 print(
