@@ -30,6 +30,8 @@ from prometheus_client import (
     CollectorRegistry,
 )
 
+import tao_recycle
+
 # ---------------------------------------------------------------------------
 # Prometheus metrics — declared at module level, one registry per process
 # ---------------------------------------------------------------------------
@@ -54,6 +56,14 @@ _VA_PY_HEAP         = Gauge("va_py_heap_mb",             "Python heap via memray
 _VA_PY_ALLOC        = Gauge("va_py_alloc_bytes",         "Top-N Python alloc site size (bytes)", ["location"])
 
 _VA_PV_POSTS        = Counter("va_pv_posts",             "SharedPV post() calls", ["pv"])
+
+_VA_TAO_RECYCLES    = Counter("va_tao_recycles",         "Tao subprocess respawns")
+_VA_TAO_RECYCLE_FAIL = Counter("va_tao_recycle_failures", "Respawns where state restore could not be verified")
+_VA_TAO_RECYCLE_DUR = Histogram("va_tao_recycle_duration_seconds",
+                                "Time to respawn Tao and replay configuration",
+                                buckets=[.5, 1.0, 2.0, 3.0, 5.0, 10.0, 30.0])
+_VA_TAO_MEM_AFTER   = Gauge("va_tao_mem_after_recycle_bytes",
+                            "Container memory immediately after the last respawn")
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +240,9 @@ def main():
     pv_renames        = json.loads(os.environ.get("PV_RENAMES", "{}"))
     metrics_port      = int(os.environ.get("METRICS_PORT", "9090"))
     top_n             = int(os.environ.get("MEMRAY_TOP_N", "10"))
+    recycle_enabled   = os.environ.get("TAO_RECYCLE_ENABLED", "true").lower() in ("true", "1", "yes")
+    recycle_growth_mb = float(os.environ.get("TAO_RECYCLE_RSS_GROWTH_MB", "400"))
+    recycle_max_cycles = int(os.environ.get("TAO_RECYCLE_MAX_CYCLES", "0"))
 
     import logging
     logging.basicConfig(level=getattr(logging, log_level))
@@ -245,6 +258,17 @@ def main():
         get_facet_staged_model,
     )
 
+    # libtao leaks ~89 KB of native heap per beam track (upstream bmad bug). Running Tao in
+    # a child process lets us respawn it to reclaim that memory. virtual_accelerator's
+    # build_bmad_model does a function-local `from pytao import Tao`, so the name resolves
+    # off the pytao module at call time -- substituting it here is enough, and avoids
+    # vendoring a patched copy of factory.py. RecyclableTao subclasses SubprocessTao which
+    # subclasses Tao, so isinstance checks and type annotations still hold.
+    if recycle_enabled:
+        import pytao
+        pytao.Tao = tao_recycle.make_recyclable_tao_class()
+        print("[recycle] pytao.Tao -> RecyclableTao (SubprocessTao)", file=sys.stderr, flush=True)
+
     if model_name == "cu_hxr_bmad":
         model = get_cu_hxr_bmad_model(end_element=end_element, track_beam=True)
     elif model_name == "cu_hxr_staged":
@@ -257,6 +281,19 @@ def main():
         raise ValueError(f"Unknown model: {model_name}")
 
     _log_memory("model-loaded")
+
+    tao_recycle.install_recycling(
+        model,
+        enabled=recycle_enabled,
+        growth_mb=recycle_growth_mb,
+        max_cycles=recycle_max_cycles,
+        on_recycle=lambda duration, mem_bytes: (
+            _VA_TAO_RECYCLES.inc(),
+            _VA_TAO_RECYCLE_DUR.observe(duration),
+            _VA_TAO_MEM_AFTER.set(mem_bytes),
+        ),
+        on_failure=_VA_TAO_RECYCLE_FAIL.inc,
+    )
 
     config = Runner.generate_config(model, remote_inputs=remote_inputs)
     config["protocol"] = ["pva"]

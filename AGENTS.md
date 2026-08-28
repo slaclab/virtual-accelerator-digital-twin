@@ -68,9 +68,78 @@ Fix: `prctl(PR_SET_THP_DISABLE)` called at `run.py` startup before any pytao imp
 Without a sleep, `take_snapshot()` ran at ~40 Hz, flooding the runner queue with `p4p.Value` objects faster than consumed → 2.3 GB accumulation over hours.
 Fix: sleep `update_rate` seconds between calls (default 0.1s = 10 Hz).
 
+**Root cause 3 — libtao leaks ~89 KB of native heap per beam track:**
+An upstream bmad bug, not fixable here. Measured over three 40-minute variants under glibc
+malloc with `malloc_trim(0)` before every sample: 89.31 KB/cycle with beam tracking,
+89.30 KB/cycle with tracking but no comb readback, 0.34 KB/cycle with no tracking. So beam
+tracking is 99.6% of it. All growth is in the `brk` heap, it survives `malloc_trim`, and it
+is perfectly linear with no plateau — a missing `free()`, not fragmentation or the allocator.
+Affects `bmad 20260824.0` / `pytao 1.2.4`. Report: `BMAD-LEAK-BUG-REPORT.md` in the pytao
+working tree.
+Mitigation: run Tao in a `pytao.SubprocessTao` child and respawn it periodically — see
+**Tao subprocess recycling** below.
+
 Additional mitigations in `kubernetes/configmap.yaml`:
 - `MALLOC_ARENA_MAX=1` — single glibc arena
 - `MALLOC_MMAP_THRESHOLD_=131072` — large allocs via mmap, returned to OS on free
+
+Note: both `MALLOC_*` settings are glibc tunables and are currently **inert**, because the
+Dockerfile preloads `libtcmalloc_minimal.so.4` (`LD_PRELOAD`, Dockerfile line 51) and tcmalloc
+ignores them. Left in place for now since removing the preload has its own blast radius.
+
+### Tao subprocess recycling
+
+`tao_recycle.py` bounds the libtao leak. Validated in-cluster: memory held a **27.3 MB
+sawtooth** (160.5–187.8 MB) instead of growing 237 MB/h, at **2.4s per respawn, 0.7% duty
+cycle**. A non-recycled `SubprocessTao` control leaked 89.11 KB/cycle — identical to
+in-process — so the benefit comes from the recycling, not from subprocess mode itself.
+
+How it hooks in: `virtual_accelerator/bmad/factory.py` does a *function-local*
+`from pytao import Tao`, so the name resolves off the `pytao` module at call time. `run.py`
+sets `pytao.Tao = RecyclableTao` before building the model. No patched copy of `factory.py`
+is needed, and the four existing `todo/patches/` files are untouched.
+
+`RecyclableTao` records configuration commands as they are issued (prefixes `set beam `,
+`set beam_init `, `set global track_type`, `set ele `; `set global lattice_calc_on` excluded
+as a per-cycle toggle), deduped by assignment target so the log stays bounded at ~120 entries.
+On recycle it calls `close_subprocess()`, `init()`, then replays that log with
+`lattice_calc_on = F` held off.
+
+**Fail-closed verification.** A respawned child returns at the *design* lattice. If
+restoration were incomplete the service would publish smooth, physical, wrong numbers —
+design magnets presented as live values. So after every respawn `verify_state()` re-reads
+`track_type`, `track_start`, comb length, the supported-variable count, and **every writable
+control variable** and compares against a pre-recycle snapshot. Stochastic read-only outputs
+(emittances, centroids) are deliberately *not* compared — beam generation is unseeded and
+varies at sqrt(N). Any mismatch logs the specific variables and calls `os._exit(90)` so
+Kubernetes restarts from known-good state.
+
+| Env var | Default | Meaning |
+|---------|---------|---------|
+| `TAO_RECYCLE_ENABLED` | `true` | Master switch; `false` restores in-process `Tao` |
+| `TAO_RECYCLE_RSS_GROWTH_MB` | `400` | Respawn once container memory grows this far past the post-startup baseline |
+| `TAO_RECYCLE_MAX_CYCLES` | `0` (off) | Cycle-count fallback trigger |
+
+The trigger reads the **cgroup** total (`/sys/fs/cgroup/memory.current`), not the parent's
+RSS — the leak lives in the child, and the cgroup total is what the kernel OOM-kills on.
+
+Metrics: `va_tao_recycles_total`, `va_tao_recycle_duration_seconds`,
+`va_tao_recycle_failures_total` (must stay 0), `va_tao_mem_after_recycle_bytes`.
+
+```bash
+kubectl logs deployment/virtual-accelerator -n virtual-accelerator | grep -E '\[recycle\]|\[recycle-assert\]'
+kubectl get pod <pod> -n virtual-accelerator -o jsonpath='{.status.containerStatuses[0].lastState}'  # exit 90 = restore failed
+```
+
+Unit tests: `tests/test_tao_recycle.py` (21 tests, no pytao needed — covers the replay log,
+model discovery, and every verification failure mode).
+
+**Unvalidated risks:** whether `SubprocessTao` marshals `ParticleGroup` efficiently across
+the process boundary (`initial_particles`/`final_particles` cross it every cycle), and
+per-cycle overhead from ~116 variable reads now being IPC. Both surface immediately rather
+than silently — compare `va_snapshot_duration_seconds` before and after. If either is
+prohibitive, the fallback is an RSS-threshold graceful restart; the ~2-week runway at
+~16 MB/h makes that viable.
 
 Memory diagnostics: `[mem]` and `[thp]` log lines to stderr every `MEM_LOG_INTERVAL_S` seconds.
 Monitor: `kubectl logs deployment/virtual-accelerator | grep -E '^\[thp\]|\[mem\]'`
@@ -93,6 +162,7 @@ The pod uses `pvua` which auto-discovers providers (tries PVA first, falls back 
 | BDES/BCTRL conflict | Both write same magnet field | Excluded `:BDES` from remote |
 | OOM after 2 days (THP) | Fortran heap promoted to 2 MB huge pages never freed | `prctl(PR_SET_THP_DISABLE)` at startup |
 | OOM after 2 days (queue) | `snapshot_loop` at 40 Hz flooded queue with p4p.Value objects | Throttle to `update_rate` (0.1s) |
+| OOM from libtao (~89 KB/beam track) | Upstream bmad missing `free()` in beam tracking | Recycle a `SubprocessTao` worker with fail-closed state verification (`tao_recycle.py`) |
 | `name` PV not real | Model metadata variable | Removed from config |
 
 ## Deploying a New Model
