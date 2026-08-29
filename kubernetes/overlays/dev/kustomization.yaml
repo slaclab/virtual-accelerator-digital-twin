@@ -29,7 +29,7 @@ configMapGenerator:
       - PV_RENAMES={"sigma_z":"OTRS:IN20:571:ZRMS","norm_emit_x":"OTRS:IN20:571:EMITN_X","norm_emit_y":"OTRS:IN20:571:EMITN_Y"}
       - END_ELEMENT=OTR4
       - N_PARTICLES=1000
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=INFO
       - LCLS_LATTICE=/opt/lcls-lattice
       - KMP_DUPLICATE_LIB_OK=TRUE
       - OMP_NUM_THREADS=1
