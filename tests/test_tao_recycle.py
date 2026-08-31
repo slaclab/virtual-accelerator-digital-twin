@@ -70,6 +70,18 @@ def test_records_configuration_commands():
     assert len(log) == 5
 
 
+def test_records_bmad_com_radiation_override():
+    """Must be replayed: if lost on respawn the lattice default returns and so does the leak."""
+    log = {}
+    assert tao_recycle.record_config_command(
+        log, "set bmad_com radiation_fluctuations_on = F"
+    )
+    assert list(log.values()) == ["set bmad_com radiation_fluctuations_on = F"]
+    # A later flip back must replace it in place, not accumulate.
+    tao_recycle.record_config_command(log, "set bmad_com radiation_fluctuations_on = T")
+    assert list(log.values()) == ["set bmad_com radiation_fluctuations_on = T"]
+
+
 def test_excludes_lattice_calc_toggle():
     log = {}
     assert not tao_recycle.record_config_command(log, "set global lattice_calc_on = F")

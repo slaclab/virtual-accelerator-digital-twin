@@ -246,6 +246,7 @@ def main():
     pv_renames        = json.loads(os.environ.get("PV_RENAMES", "{}"))
     metrics_port      = int(os.environ.get("METRICS_PORT", "9090"))
     top_n             = int(os.environ.get("MEMRAY_TOP_N", "10"))
+    radiation_fluct   = os.environ.get("BMAD_RADIATION_FLUCTUATIONS", "").strip().lower()
     recycle_enabled   = os.environ.get("TAO_RECYCLE_ENABLED", "true").lower() in ("true", "1", "yes")
     recycle_growth_mb = float(os.environ.get("TAO_RECYCLE_RSS_GROWTH_MB", "400"))
     recycle_max_cycles = int(os.environ.get("TAO_RECYCLE_MAX_CYCLES", "0"))
@@ -287,6 +288,24 @@ def main():
         raise ValueError(f"Unknown model: {model_name}")
 
     _log_memory("model-loaded")
+
+    # Radiation is one of the two conditions gating the libtao rad_map leak
+    # (bmad-ecosystem#2177 -- the leak needs radiation AND comb saving; we need comb saving).
+    # cu_hxr tao.init sets radiation_fluctuations_on = T, so overriding it to F is a candidate
+    # fix at source rather than containment. This is a reversible diagnostic: radiation is
+    # expected to be needed again, so recycling stays enabled either way. Unset leaves the
+    # lattice value untouched.
+    if radiation_fluct:
+        bmad_stage = tao_recycle.find_bmad_model(model)
+        if bmad_stage is None:
+            print("[radiation] WARNING no Bmad model found; override NOT applied",
+                  file=sys.stderr, flush=True)
+        else:
+            flag = "T" if radiation_fluct in ("on", "true", "1", "yes") else "F"
+            # Issued through tao.cmd so RecyclableTao records it for replay after a respawn.
+            bmad_stage.tao.cmd(f"set bmad_com radiation_fluctuations_on = {flag}")
+            print(f"[radiation] override: bmad_com radiation_fluctuations_on = {flag} "
+                  f"(lattice default is T)", file=sys.stderr, flush=True)
 
     tao_recycle.install_recycling(
         model,

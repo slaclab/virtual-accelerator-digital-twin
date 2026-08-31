@@ -32,6 +32,10 @@ _CONFIG_PREFIXES = (
     "set beam_init ",
     "set global track_type",
     "set ele ",
+    # Radiation gates the libtao rad_map leak (bmad-ecosystem#2177), so if it is overridden
+    # the override MUST survive a respawn -- otherwise the first recycle silently restores
+    # the lattice default and the leak returns.
+    "set bmad_com ",
 )
 
 # A per-cycle toggle, not state. Recording it would replay a stale value and, worse, leave

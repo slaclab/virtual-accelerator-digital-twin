@@ -116,12 +116,35 @@ Kubernetes restarts from known-good state.
 
 | Env var | Default | Meaning |
 |---------|---------|---------|
+| `BMAD_RADIATION_FLUCTUATIONS` | unset | `off` disables radiation fluctuations, which gate the libtao leak (see below). Unset leaves the lattice value alone |
 | `TAO_RECYCLE_ENABLED` | `true` | Master switch; `false` restores in-process `Tao` |
 | `TAO_RECYCLE_RSS_GROWTH_MB` | `400` | Respawn once container memory grows this far past the post-startup baseline |
 | `TAO_RECYCLE_MAX_CYCLES` | `0` (off) | Cycle-count fallback trigger |
 
 The trigger reads the **cgroup** total (`/sys/fs/cgroup/memory.current`), not the parent's
 RSS — the leak lives in the child, and the cgroup total is what the kernel OOM-kills on.
+
+### Radiation as a candidate fix at source
+
+Upstream root cause is [bmad-ecosystem#2177](https://github.com/bmad-sim/bmad-ecosystem/issues/2177):
+`transfer_ele(..., nullify_pointers=.true.)` drops the `rad_map` pointer without deallocating,
+then `radiation_map_setup` reallocates — orphaning one 2048-byte `rad_map_ele_struct` **per
+lattice element per beam re-track**. That model reproduces our numbers: 89.31 KB/re-track on
+the `OTR2:TD11` probe (~45 elements) and 12.67 KB/re-track on the `OTR2:OTR4` service
+(~6 elements).
+
+The leak requires **radiation AND comb saving**; disabling either removes it. We need comb
+saving (it is how outputs are read), but `cu_hxr/tao.init:29` sets
+`bmad_com%radiation_fluctuations_on = T` (damping is already `F`), so
+`BMAD_RADIATION_FLUCTUATIONS=off` is a candidate fix at source rather than containment.
+
+**This is a reversible diagnostic, not a permanent change** — radiation is expected to be
+needed again, so keep recycling enabled regardless. Note the override **changes published
+physics** (energy spread / emittance), so it is a deliberate temporary configuration.
+
+`set bmad_com ` is in `_CONFIG_PREFIXES` for a reason: if the override were not replayed after
+a respawn, the first recycle would silently restore the lattice default and the leak would
+return. Never ship a `bmad_com` override without that whitelist entry.
 
 Metrics: `va_tao_recycles_total`, `va_tao_recycle_duration_seconds`,
 `va_tao_recycle_failures_total` (must stay 0), `va_tao_mem_after_recycle_bytes`.
