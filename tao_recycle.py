@@ -85,6 +85,44 @@ def cgroup_current_bytes() -> float:
     return float("nan")
 
 
+_PAGE = os.sysconf("SC_PAGE_SIZE")
+
+
+def _stat_fields(pid):
+    with open(f"/proc/{pid}/stat") as fp:
+        data = fp.read()
+    return data[data.rindex(")") + 2:].split()
+
+
+def descendants_rss_mb(root: int = 1) -> float:
+    """Total RSS of every descendant process, i.e. the Tao worker.
+
+    The residual growth after a respawn is neither parent Python objects nor the fresh
+    child, so parent and child have to be tracked separately to localize it.
+    """
+    kids: dict[int, list[int]] = {}
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return float("nan")
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            kids.setdefault(int(_stat_fields(entry)[1]), []).append(int(entry))
+        except (OSError, ValueError, IndexError):
+            continue
+    total, stack = 0.0, [root]
+    while stack:
+        for child in kids.get(stack.pop(), []):
+            try:
+                total += int(_stat_fields(child)[21]) * _PAGE / MB
+            except (OSError, ValueError, IndexError):
+                pass
+            stack.append(child)
+    return total
+
+
 def make_recyclable_tao_class():
     """Build the RecyclableTao class. Imports pytao, so call only where pytao exists."""
     from pytao import SubprocessTao
@@ -116,6 +154,11 @@ def make_recyclable_tao_class():
         @property
         def config_command_count(self) -> int:
             return len(self._config_log)
+
+        @property
+        def config_commands(self) -> list[str]:
+            """The exact commands that will be replayed after a respawn."""
+            return list(self._config_log.values())
 
         def recycle(self) -> float:
             """Respawn the worker and replay configuration. Returns seconds taken."""
@@ -279,7 +322,7 @@ def install_recycling(
     # The top-level model must be wrapped: StagedModel._set only forwards to the Bmad stage
     # when that cycle's values target it, so wrapping the stage gives an unreliable hook.
     original_set = model.set
-    state = {"baseline": cgroup_current_bytes(), "cycles": 0}
+    state = {"baseline": cgroup_current_bytes(), "cycles": 0, "logged_detail": False}
 
     _log(
         f"installed: growth_mb={growth_mb} max_cycles={max_cycles or 'off'} "
@@ -329,9 +372,19 @@ def install_recycling(
         state["cycles"] = 0
         _log(
             f"respawned in {duration:.1f}s, replayed {tao.config_command_count} commands, "
+            f"verified {len(snapshot['controls'])} control vars + 4 structural checks, "
             f"memory {before / MB:.1f}MB -> {after / MB:.1f}MB "
             f"({(after - before) / MB:+.1f}MB), state verified"
         )
+        # Which commands are replayed, and how many variables the check actually compares,
+        # determines whether the verification is meaningful or vacuous. Log it rather than
+        # infer it.
+        if state["logged_detail"] is False:
+            state["logged_detail"] = True
+            for command in tao.config_commands:
+                _log(f"  replay: {command}")
+            names = sorted(snapshot["controls"])
+            _log(f"  compared controls ({len(names)}): {', '.join(names) if names else '(NONE)'}")
         if on_recycle is not None:
             on_recycle(duration, after)
 

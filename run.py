@@ -93,8 +93,14 @@ def _log_memory(label: str) -> None:
     rss_mb  = m.get("Rss", 0) / 1024
     anon_mb = m.get("Anonymous", 0) / 1024
     ahp_mb  = m.get("AnonHugePages", 0) / 1024
+    # child and cgroup are logged alongside the parent because the residual growth left
+    # behind by each Tao respawn is in neither the parent's Python heap nor the fresh child,
+    # and cannot be localized from a single total.
+    child_mb = tao_recycle.descendants_rss_mb()
+    cg_mb = tao_recycle.cgroup_current_bytes() / (1024.0 * 1024.0)
     print(
-        f"[mem] {label}: RSS={rss_mb:.1f}MB  anon={anon_mb:.1f}MB  AnonHugePages={ahp_mb:.1f}MB",
+        f"[mem] {label}: RSS={rss_mb:.1f}MB  anon={anon_mb:.1f}MB  AnonHugePages={ahp_mb:.1f}MB"
+        f"  child={child_mb:.1f}MB  cgroup={cg_mb:.1f}MB",
         file=sys.stderr, flush=True,
     )
     _VA_RSS.set(m.get("Rss", 0) * 1024)

@@ -232,6 +232,12 @@ def test_capture_state_skips_comb_when_not_beam_tracking():
 # --- install_recycling guards ---------------------------------------------
 
 
+def test_descendants_rss_degrades_gracefully_without_proc():
+    """Returns a float (nan off-Linux) rather than raising, so [mem] logging never breaks."""
+    v = tao_recycle.descendants_rss_mb()
+    assert isinstance(v, float)
+
+
 def test_install_recycling_disabled_is_a_noop():
     bmad = _bmad({"QA11": 1.5})
     original = bmad.set = lambda values: values
