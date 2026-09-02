@@ -45,6 +45,10 @@ configMapGenerator:
       - PYEPICS_LIBCA=/opt/conda/lib/libca.so
       - MALLOC_ARENA_MAX=1
       - MALLOC_MMAP_THRESHOLD_=131072
+      # Belt and braces: the tcmalloc preload has been removed from the Dockerfile, so this
+      # is only load-bearing if an older image tag is deployed. Under tcmalloc the three
+      # malloc_trim(0) calls in this repo are no-ops and both MALLOC_* settings are ignored.
+      - LD_PRELOAD=
       - MEM_LOG_INTERVAL_S=60
       # Diagnostic: radiation gates the libtao rad_map leak (bmad-ecosystem#2177).
       # Set to "on" to restore the lattice default when radiation is needed again.

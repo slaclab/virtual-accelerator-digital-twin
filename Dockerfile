@@ -47,8 +47,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TORCH_NUM_THREADS=2 \
     EPICS_PVA_AUTO_ADDR_LIST=YES \
     PYEPICS_LIBCA=/opt/conda/epics/lib/linux-x86_64/libca.so \
-    MALLOC_ARENA_MAX=1 \
-    LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4
+    MALLOC_ARENA_MAX=1
+# tcmalloc was preloaded here to reduce fragmentation, but it silently defeated every other
+# memory mitigation in this repo: tcmalloc does not export malloc_trim, so the three
+# _libc.malloc_trim(0) calls (run.py, lume_bmad_model, lume_staged_model) were trimming
+# glibc's unused heap, and MALLOC_ARENA_MAX / MALLOC_MMAP_THRESHOLD_ are glibc-only tunables
+# it ignores. Measured over matched 20 h windows, removing it reclaimed ~126 MB of anonymous
+# memory immediately and halved parent growth (2.68 -> 1.39 MB/h) at no cost in cycle time
+# (0.733 s vs 0.726 s). Keep glibc so those mitigations actually take effect.
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash bzip2 curl git patchelf \
