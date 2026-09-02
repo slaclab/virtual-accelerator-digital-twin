@@ -244,6 +244,13 @@ def test_capture_state_skips_comb_when_not_beam_tracking():
 # --- install_recycling guards ---------------------------------------------
 
 
+def test_cgroup_anon_degrades_gracefully(monkeypatch):
+    """Must fall back to memory.current rather than nan, or the trigger would never fire."""
+    monkeypatch.setattr(tao_recycle, "cgroup_current_bytes", lambda: 12345.0)
+    # No cgroup files on a dev mac, so this exercises the fallback path.
+    assert tao_recycle.cgroup_anon_bytes() == 12345.0
+
+
 def test_descendants_rss_degrades_gracefully_without_proc():
     """Returns a float (nan off-Linux) rather than raising, so [mem] logging never breaks."""
     v = tao_recycle.descendants_rss_mb()

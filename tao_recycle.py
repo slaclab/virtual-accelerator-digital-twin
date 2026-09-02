@@ -76,8 +76,9 @@ def record_config_command(log: dict, cmd) -> bool:
 def cgroup_current_bytes() -> float:
     """Total memory charged to this container, parent plus children.
 
-    The parent's own RSS is useless as a trigger here: the leak accumulates entirely in the
-    Tao child. This is also the number the kernel OOM-kills on.
+    This is what the kernel OOM-kills on, so it is worth logging -- but it includes
+    reclaimable page cache and slab, which makes it a poor trigger. See
+    cgroup_anon_bytes.
     """
     for path in ("/sys/fs/cgroup/memory.current",
                  "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
@@ -87,6 +88,37 @@ def cgroup_current_bytes() -> float:
         except (OSError, ValueError):
             continue
     return float("nan")
+
+
+def cgroup_anon_bytes() -> float:
+    """Anonymous (non-reclaimable) memory charged to this container.
+
+    The respawn trigger uses this rather than memory.current. memory.current also counts
+    page cache and slab, which the kernel grows when the node has memory free and reclaims
+    when it does not -- measured swings of +7 to -21 MB/h with no change in our own memory
+    use. That is large enough to fire the threshold when nothing has leaked, and it made
+    successive estimates of the residual leak disagree by 10x until we separated the two.
+    Anonymous memory only goes up when something actually allocates and holds it.
+
+    Falls back to memory.current if anon is unavailable, so the trigger degrades to the old
+    behaviour rather than never firing.
+    """
+    for path in ("/sys/fs/cgroup/memory.stat", "/sys/fs/cgroup/memory/memory.stat"):
+        try:
+            with open(path) as fp:
+                stats = dict(
+                    (k, v) for k, _, v in (line.partition(" ") for line in fp)
+                )
+        except OSError:
+            continue
+        # cgroup v2 calls it "anon"; v1 calls it "rss".
+        for key in ("anon", "rss"):
+            if key in stats:
+                try:
+                    return float(int(stats[key]))
+                except ValueError:
+                    pass
+    return cgroup_current_bytes()
 
 
 _PAGE = os.sysconf("SC_PAGE_SIZE")
@@ -326,18 +358,19 @@ def install_recycling(
     # The top-level model must be wrapped: StagedModel._set only forwards to the Bmad stage
     # when that cycle's values target it, so wrapping the stage gives an unreliable hook.
     original_set = model.set
-    state = {"baseline": cgroup_current_bytes(), "cycles": 0, "logged_detail": False}
+    state = {"baseline": cgroup_anon_bytes(), "cycles": 0, "logged_detail": False}
 
     _log(
         f"installed: growth_mb={growth_mb} max_cycles={max_cycles or 'off'} "
-        f"baseline={state['baseline'] / MB:.1f}MB "
+        f"anon_baseline={state['baseline'] / MB:.1f}MB "
+        f"(cgroup total {cgroup_current_bytes() / MB:.1f}MB) "
         f"tracked_commands={bmad.tao.config_command_count}"
     )
 
     def _should_recycle() -> bool:
         if max_cycles and state["cycles"] >= max_cycles:
             return True
-        current = cgroup_current_bytes()
+        current = cgroup_anon_bytes()
         baseline = state["baseline"]
         if current != current or baseline != baseline:  # NaN: cgroup unreadable
             return False
@@ -345,7 +378,8 @@ def install_recycling(
 
     def _recycle_now() -> None:
         tao = bmad.tao
-        before = cgroup_current_bytes()
+        before = cgroup_anon_bytes()
+        before_total = cgroup_current_bytes()
         snapshot = capture_state(bmad)
 
         try:
@@ -371,14 +405,15 @@ def install_recycling(
             sys.stderr.flush()
             os._exit(EXIT_RESTORE_FAILED)
 
-        after = cgroup_current_bytes()
+        after = cgroup_anon_bytes()
         state["baseline"] = after
         state["cycles"] = 0
         _log(
             f"respawned in {duration:.1f}s, replayed {tao.config_command_count} commands, "
             f"verified {len(snapshot['controls'])} control vars + 4 structural checks, "
-            f"memory {before / MB:.1f}MB -> {after / MB:.1f}MB "
-            f"({(after - before) / MB:+.1f}MB), state verified"
+            f"anon {before / MB:.1f}MB -> {after / MB:.1f}MB ({(after - before) / MB:+.1f}MB), "
+            f"cgroup total {before_total / MB:.1f}MB -> {cgroup_current_bytes() / MB:.1f}MB, "
+            f"state verified"
         )
         # Which commands are replayed, and how many variables the check actually compares,
         # determines whether the verification is meaningful or vacuous. Log it rather than

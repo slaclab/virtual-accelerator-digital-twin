@@ -121,8 +121,23 @@ Kubernetes restarts from known-good state.
 | `TAO_RECYCLE_RSS_GROWTH_MB` | `400` | Respawn once container memory grows this far past the post-startup baseline |
 | `TAO_RECYCLE_MAX_CYCLES` | `0` (off) | Cycle-count fallback trigger |
 
-The trigger reads the **cgroup** total (`/sys/fs/cgroup/memory.current`), not the parent's
-RSS — the leak lives in the child, and the cgroup total is what the kernel OOM-kills on.
+The trigger reads **cgroup anonymous memory** (`anon` in `/sys/fs/cgroup/memory.stat`), not the
+parent's RSS and not `memory.current`:
+
+- Parent RSS is wrong because the leak accumulates in the child.
+- `memory.current` is wrong because it also counts reclaimable page cache and slab. Measured
+  over two runs, that component swings from **+7 to −21 MB/h** purely with node-wide memory
+  pressure (kernel caches when memory is free, reclaims when it is not) — enough to fire the
+  threshold when nothing leaked. It also made five successive estimates of the residual leak
+  disagree by 10x until the two were separated. Anonymous memory only rises when something
+  actually allocates and holds it.
+
+`memory.current` is still logged for context (it is what the kernel OOM-kills on) and is used
+as a fallback if `anon` is unreadable. Both appear in the `[mem]` line as `cgroup=` and
+`cg_anon=`.
+
+**When measuring this service's memory, use `cg_anon`.** Fitting a rate to `cgroup=` will give
+an unstable answer no matter how long the window.
 
 ### Radiation as a candidate fix at source
 

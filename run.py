@@ -98,9 +98,12 @@ def _log_memory(label: str) -> None:
     # and cannot be localized from a single total.
     child_mb = tao_recycle.descendants_rss_mb()
     cg_mb = tao_recycle.cgroup_current_bytes() / (1024.0 * 1024.0)
+    # cg_anon is the leak-relevant series: cgroup total also counts reclaimable page cache
+    # and slab, which swing tens of MB/h with node memory pressure and obscure the signal.
+    cg_anon_mb = tao_recycle.cgroup_anon_bytes() / (1024.0 * 1024.0)
     print(
         f"[mem] {label}: RSS={rss_mb:.1f}MB  anon={anon_mb:.1f}MB  AnonHugePages={ahp_mb:.1f}MB"
-        f"  child={child_mb:.1f}MB  cgroup={cg_mb:.1f}MB",
+        f"  child={child_mb:.1f}MB  cgroup={cg_mb:.1f}MB  cg_anon={cg_anon_mb:.1f}MB",
         file=sys.stderr, flush=True,
     )
     _VA_RSS.set(m.get("Rss", 0) * 1024)
