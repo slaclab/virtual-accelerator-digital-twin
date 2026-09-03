@@ -250,6 +250,35 @@ def _control_variable_names(bmad) -> list[str]:
     return names
 
 
+def bmad_com_keys(tao) -> list[str]:
+    """bmad_com settings the model has overridden, parsed out of the replay log.
+
+    These are physics switches, not bookkeeping. `lr_wakes_on` and `sr_wakes_on` were being
+    silently dropped on every respawn until `set bmad_com ` was added to _CONFIG_PREFIXES,
+    and nothing noticed because bmad_com was not verified. Whatever we replay, we check.
+    """
+    keys = []
+    for command in getattr(tao, "config_commands", []):
+        if not command.lower().startswith("set bmad_com "):
+            continue
+        key = command[len("set bmad_com "):].split("=", 1)[0].strip()
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def _read_bmad_com(tao, keys) -> dict:
+    """Current values of `keys`. Read through tao.bmad_com() both before and after a respawn
+    so the comparison is value-to-value and never has to parse 'false' vs 'F'."""
+    if not keys:
+        return {}
+    try:
+        current = tao.bmad_com()
+    except Exception:
+        return {k: _MISSING for k in keys}
+    return {k: current.get(k, _MISSING) for k in keys}
+
+
 def capture_state(bmad) -> dict:
     tao = bmad.tao
     track_type = tao.tao_global()["track_type"]
@@ -259,6 +288,7 @@ def capture_state(bmad) -> dict:
         "n_supported": len(bmad.supported_variables),
         "comb_len": len(tao.bunch_comb("s")) if track_type == "beam" else None,
         "controls": {n: bmad._state[n] for n in _control_variable_names(bmad)},
+        "bmad_com": _read_bmad_com(tao, bmad_com_keys(tao)),
     }
 
 
@@ -304,6 +334,15 @@ def verify_state(bmad, snapshot: dict) -> list[str]:
         comb_len = len(tao.bunch_comb("s"))
         if comb_len != snapshot["comb_len"]:
             problems.append(f"comb length {snapshot['comb_len']} -> {comb_len}")
+
+    expected_com = snapshot.get("bmad_com") or {}
+    if expected_com:
+        actual_com = _read_bmad_com(tao, list(expected_com))
+        for key, expected in expected_com.items():
+            actual = actual_com.get(key, _MISSING)
+            if not _values_match(expected, actual):
+                shown = "<unreadable>" if actual is _MISSING else actual
+                problems.append(f"bmad_com {key}: expected {expected!r} got {shown!r}")
 
     bmad.update_state()
     mismatched = []
@@ -410,7 +449,8 @@ def install_recycling(
         state["cycles"] = 0
         _log(
             f"respawned in {duration:.1f}s, replayed {tao.config_command_count} commands, "
-            f"verified {len(snapshot['controls'])} control vars + 4 structural checks, "
+            f"verified {len(snapshot['controls'])} control vars + "
+            f"{len(snapshot.get('bmad_com') or {})} bmad_com + 4 structural checks, "
             f"anon {before / MB:.1f}MB -> {after / MB:.1f}MB ({(after - before) / MB:+.1f}MB), "
             f"cgroup total {before_total / MB:.1f}MB -> {cgroup_current_bytes() / MB:.1f}MB, "
             f"state verified"

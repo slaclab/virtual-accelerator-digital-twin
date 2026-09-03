@@ -55,4 +55,8 @@ configMapGenerator:
       - BMAD_RADIATION_FLUCTUATIONS=off
       - TAO_RECYCLE_ENABLED=true
       - TAO_RECYCLE_RSS_GROWTH_MB=400
+      # 0 = memory-threshold only. Was briefly 2000 to force a respawn and log the replay
+      # list; that revealed two bmad_com wakefield settings were being dropped. With
+      # radiation off there is no libtao leak to reclaim, so a forced respawn now costs
+      # ~21 MB rather than saving any -- leave at 0.
       - TAO_RECYCLE_MAX_CYCLES=0

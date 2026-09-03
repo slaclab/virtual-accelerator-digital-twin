@@ -18,10 +18,16 @@ class BeamAtElementVariable(FakeVariable):
 
 
 class FakeTao:
-    def __init__(self, track_type="beam", track_start="OTR2", comb_len=120):
+    def __init__(self, track_type="beam", track_start="OTR2", comb_len=120,
+                 config_commands=(), bmad_com=None):
         self._track_type = track_type
         self._track_start = track_start
         self._comb_len = comb_len
+        self.config_commands = list(config_commands)
+        self._bmad_com = dict(bmad_com or {})
+
+    def bmad_com(self):
+        return dict(self._bmad_com)
 
     def tao_global(self):
         return {"track_type": self._track_type}
@@ -233,6 +239,51 @@ def test_capture_state_excludes_beam_at_element_variables():
     snapshot = tao_recycle.capture_state(bmad)
     assert "OTR2_beam" not in snapshot["controls"]
     assert "QA11" in snapshot["controls"]
+
+
+_WAKE_CMDS = (
+    "set bmad_com lr_wakes_on=false",
+    "set bmad_com sr_wakes_on=false",
+    "set bmad_com radiation_fluctuations_on = F",
+)
+_WAKE_STATE = {"lr_wakes_on": False, "sr_wakes_on": False,
+               "radiation_fluctuations_on": False}
+
+
+def test_bmad_com_keys_parses_both_spacing_styles():
+    """Commands appear as both `key=value` and `key = value` in practice."""
+    tao = FakeTao(config_commands=_WAKE_CMDS)
+    assert tao_recycle.bmad_com_keys(tao) == [
+        "lr_wakes_on", "sr_wakes_on", "radiation_fluctuations_on"
+    ]
+
+
+def test_bmad_com_keys_ignores_other_commands():
+    tao = FakeTao(config_commands=("set beam comb_ds_save = 0.1", "set ele Q1 K1 = 2"))
+    assert tao_recycle.bmad_com_keys(tao) == []
+
+
+def test_verify_state_detects_wakefields_silently_reverting():
+    """The real bug: lr_wakes_on/sr_wakes_on reverted to Bmad's default on every respawn
+    for a week, changing published physics, because bmad_com was replayed but never checked."""
+    bmad = _bmad({"QA11": 1.5}, config_commands=_WAKE_CMDS, bmad_com=dict(_WAKE_STATE))
+    snapshot = tao_recycle.capture_state(bmad)
+    assert len(snapshot["bmad_com"]) == 3
+
+    bmad.restored_state = dict(bmad._state)
+    bmad.tao._bmad_com["lr_wakes_on"] = True   # Bmad default reasserts itself
+    bmad.tao._bmad_com["sr_wakes_on"] = True
+
+    problems = tao_recycle.verify_state(bmad, snapshot)
+    assert any("lr_wakes_on" in p for p in problems)
+    assert any("sr_wakes_on" in p for p in problems)
+
+
+def test_verify_state_clean_when_bmad_com_restored():
+    bmad = _bmad({"QA11": 1.5}, config_commands=_WAKE_CMDS, bmad_com=dict(_WAKE_STATE))
+    snapshot = tao_recycle.capture_state(bmad)
+    bmad.restored_state = dict(bmad._state)
+    assert tao_recycle.verify_state(bmad, snapshot) == []
 
 
 def test_capture_state_skips_comb_when_not_beam_tracking():
