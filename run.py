@@ -16,10 +16,18 @@ Configurable via environment variables:
 """
 
 import ctypes
+import faulthandler
 import json
 import os
 import sys
 import threading
+
+# Dump the Python stack of every thread on SIGSEGV/SIGABRT/SIGFPE. The parent process died
+# with exit 139 (SIGSEGV) on 2026-09-03 after 33 h with no traceback -- a native crash gives
+# no Python exception, so without this there is nothing to go on but guesswork. Native
+# suspects in the parent are p4p/pvxs, torch, numpy and h5py; Bmad is excluded because Tao
+# runs in a child process. Writes to stderr, so it lands in the pod log.
+faulthandler.enable()
 
 from prometheus_client import (
     Counter,
