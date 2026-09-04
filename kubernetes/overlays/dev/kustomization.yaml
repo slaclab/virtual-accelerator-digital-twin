@@ -54,9 +54,11 @@ configMapGenerator:
       # at run.py:196, ~10-33 h apart. It also runs native_traces=False, so it could not see
       # the remaining leak (which is native) even in principle. Zero value, real crash risk.
       - MEMRAY_TOP_N=0
-      # Diagnostic: radiation gates the libtao rad_map leak (bmad-ecosystem#2177).
-      # Set to "on" to restore the lattice default when radiation is needed again.
-      - BMAD_RADIATION_FLUCTUATIONS=off
+      # Restored to the lattice default now that bmad-ecosystem#2176 is merged and shipped
+      # in conda-forge bmad 20260904.1, which fixes the rad_map leak this was working around
+      # (bmad-ecosystem#2177 / #2175). Requires an image rebuild to pick up the new bmad.
+      # If the leak reappears, set back to "off" -- one word, no rebuild.
+      - BMAD_RADIATION_FLUCTUATIONS=on
       - TAO_RECYCLE_ENABLED=true
       - TAO_RECYCLE_RSS_GROWTH_MB=400
       # 0 = memory-threshold only. Was briefly 2000 to force a respawn and log the replay
