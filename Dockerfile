@@ -71,7 +71,10 @@ RUN arch="$(dpkg --print-architecture)" \
     && rm -f /tmp/miniforge.sh \
     && conda config --system --add channels conda-forge \
     && conda config --system --set channel_priority strict \
-    && conda install -y "python=${PYTHON_VERSION}" pip bmad pytao \
+    # bmad pinned: 20260904.1 is the first build containing bmad-ecosystem#2176, which fixes
+    # the rad_map leak (#2177/#2175) that grew this service 269 MB -> 4.6 GB in 17 h. Leaving
+    # it unpinned meant Docker reused the cached conda layer and silently kept 20260828.0.
+    && conda install -y "python=${PYTHON_VERSION}" pip "bmad=20260904.1" pytao \
     && conda install epics-base pvxs=1.5.2 \
     && patchelf --clear-execstack /opt/conda/lib/libtao.so \
     && conda clean -afy
