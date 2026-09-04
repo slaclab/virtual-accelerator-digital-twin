@@ -50,6 +50,10 @@ configMapGenerator:
       # malloc_trim(0) calls in this repo are no-ops and both MALLOC_* settings are ignored.
       - LD_PRELOAD=
       - MEM_LOG_INTERVAL_S=60
+      # 0 = disabled. memray segfaulted the process twice (exit 139) in alloc.stack_trace()
+      # at run.py:196, ~10-33 h apart. It also runs native_traces=False, so it could not see
+      # the remaining leak (which is native) even in principle. Zero value, real crash risk.
+      - MEMRAY_TOP_N=0
       # Diagnostic: radiation gates the libtao rad_map leak (bmad-ecosystem#2177).
       # Set to "on" to restore the lattice default when radiation is needed again.
       - BMAD_RADIATION_FLUCTUATIONS=off
