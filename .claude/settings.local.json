@@ -31,7 +31,14 @@
       "Bash(git rm *)",
       "Bash(pkill -f mock_ca_ioc.py)",
       "Bash(grep -n \"BCTRL$\" /Users/bisegni/dev/github/slaclab/virtual-accelerator-digital-twin/scripts/pv_list.txt)",
-      "Bash(grep *)"
+      "Bash(grep *)",
+      "Bash(/Users/bisegni/dev/github/slaclab/virtual-accelerator-digital-twin/.venv/bin/python -c \"import p4p; print\\(p4p.__version__\\)\")",
+      "Bash(ls *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(curl -s \"https://raw.githubusercontent.com/epics-base/p4p/master/src/pvxs_client.cpp\")",
+      "Bash(curl -s \"https://api.github.com/repos/epics-base/p4p/git/trees/master?recursive=1\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/epics-base/p4p/master/src/p4p.h\")"
     ]
   }
 }

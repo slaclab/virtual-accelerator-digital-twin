@@ -19,6 +19,7 @@ python_files = ["test_*.py"]
 python_functions = ["test_*"]
 markers = [
     "integration: tests that require docker services running",
+    "pva_leak: p4p PVA get memory leak isolation tests (requires p4p installed)",
 ]
-# Skip integration markers unless explicitly selected
-addopts = "-m 'not integration'"
+# Skip integration and pva_leak markers unless explicitly selected
+addopts = "-m 'not integration and not pva_leak'"
