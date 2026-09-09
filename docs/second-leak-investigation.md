@@ -190,24 +190,36 @@ Both arms are identical, so **`unpack_value` is innocent**.
 | numpy, harness loop (FakeModel) | +0.00 MB/h | Clean |
 | `SharedPV.post()`, 4 ways | flat over 26.6 B posts | Clean |
 | `unpack_value` | identical to plain get | Clean |
-| **PVA get request path** | **~2.1 KB / 1,000 gets** | **Leaks** |
+| p4p **server** get handling | flat over 637 M posts | Clean |
+| **p4p client `Context.get()`** | **~1.7-2.1 KB / 1,000 gets** | **Leaks** |
 
 ---
 
-## Open question: client or server?
+## 8. Client or server? — resolved: client
 
-**The test runs the server and the client in the same process**, so it cannot yet distinguish:
+`scripts/pva_get_leak_test.py` runs the server and client in one process, so it could not
+attribute the growth. `kubernetes/pva-split-test.yaml` splits them into separate pods, hence
+separate cgroups, so `anon` is measured per role. The client reaches the server by pod IP —
+pvxs rejects DNS names in `EPICS_PVA_NAME_SERVERS` (*"IPv4 address too long"*).
 
-- a leak in the p4p **client** `Context.get()`, or
-- a leak in the **server** handling get requests.
+| Role | Work done | `anon` |
+|---|---|---|
+| **Client** (`Context.get()` loop) | 1.9 M → 3.2 M gets | **+15.80 → +17.91 MB, climbing** |
+| **Server** (`post()` only) | 510 M → 637 M posts | **+13.88 → +13.89 MB, flat** |
 
-The `post()` test also ran a server and was flat — but it had no client, so what we know is
-that *adding a client* causes growth, not that the client is at fault.
+The server absorbed **637 million posts** and moved 0.01 MB. The client climbs ~0.36 MB/min
+at 3,500 gets/s — about **21.4 MB/h**.
 
-**Required before filing upstream:** split client and server into separate processes and
-measure each. Until that is done, "client get leak" is not a supportable claim.
+Both roles carry a fixed ~13 MB startup offset (interpreter, PVA channel setup for 180 PVs),
+which is why `kb_per_1k_ops` declines while the slope stays constant. It is the slope that
+matters.
 
-Also untested:
+**Conclusion: the leak is in the p4p client `Context.get()`.** Server-side get handling and
+`SharedPV.post()` are both clean.
+
+## Open questions
+
+Still untested:
 - Whether it scales with PV count or is strictly per-`get` (the test uses 180 PVs).
 - Whether `Context.monitor()` avoids it. Production uses snapshot mode because monitors were
   unreliable through the socat proxy, but monitors are the obvious workaround if they are clean.

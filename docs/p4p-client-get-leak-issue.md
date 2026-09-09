@@ -1,14 +1,14 @@
-# Draft issue for p4p: memory leak in client `Context.get()`
+# Draft issue for p4p: client `Context.get()` leaks when polling many distinct channels
 
 **Target:** https://github.com/mdavidsaver/p4p/issues
-**Status:** draft. Confirmation runs still in progress; see
-[Before filing](#before-filing) for the two checks worth completing first.
+**Status:** draft. Scaling curve between the two known data points (1 channel, 180
+channels) is not yet characterised — see [Before filing](#before-filing).
 
 ---
 
 ## Title
 
-`Context.get()` leaks ~2 KB per 1,000 calls (native heap, non-reclaimable)
+`Context.get()` leaks native heap when polling many distinct channels; single-channel gets and `Context.monitor()` are clean
 
 ---
 
@@ -16,14 +16,19 @@
 
 ### Summary
 
-Repeated `p4p.client.thread.Context.get()` calls leak native heap at roughly **2 KB per
-1,000 gets**, linearly and without plateau. The growth is anonymous (non-reclaimable) memory
-and survives `malloc_trim`, so it is not allocator retention.
+Repeated `p4p.client.thread.Context.get()` calls across ~180 distinct PVs leak native
+heap linearly and without plateau. The **same script issuing more gets against a single
+PV** shows no growth over 10 M+ calls, and `Context.monitor()` on the same 180 PVs is
+flat over 250 M+ callbacks. So the leak is bound to the combination of many channels
+and the get-request path — it is **not per-`get`**, **not present in `monitor()`**, and
+**not on the server side**.
 
-A long-running service of ours polls ~180 PVs every 0.7 s, which works out to ~257 gets/s and
-**1.60 MB/h** — about 1.1 GB/month. We reached the p4p client by elimination while chasing
-that growth through an accelerator-physics stack; the isolated reproducer below has no
-dependency on any of it.
+Growth is anonymous (non-reclaimable) memory, survives `malloc_trim(0)`, appears in the
+`brk` heap rather than CPython's `mmap` arenas, and is invisible to `tracemalloc` — so
+this is native, not Python objects.
+
+In our long-running service (~180 PVs polled at ~257 gets/s) the leak runs at **1.60
+MB/h**, ~1.1 GB/month.
 
 ### Environment
 
@@ -38,17 +43,20 @@ allocator    glibc (no tcmalloc preload)
 
 ### Reproducer
 
-Server and client in **separate processes**, so the growth can be attributed to one side.
-Measures cgroup `anon` because the leak is native — `tracemalloc` reads flat throughout.
+Server and client run in **separate processes** so that anon growth can be attributed
+to one side. Three client arms exercised against the same server: `n1`, `n180`, and
+`monitor`. Client is byte-for-byte the same code path except for `N_PV` and
+`get()` vs `monitor()`.
 
 ```python
-# server.py -- serve 180 scalar PVs, keep posting so nothing short-circuits
+# server.py -- serve N scalar PVs and keep posting
 import time
 from p4p.nt import NTScalar
 from p4p.server import Server
 from p4p.server.thread import SharedPV
 
-names = [f"SPLIT:PV:{i:04d}" for i in range(180)]
+N = 180
+names = [f"SPLIT:PV:{i:04d}" for i in range(N)]
 pvs = {n: SharedPV(nt=NTScalar("d"), initial=float(i)) for i, n in enumerate(names)}
 srv = Server(providers=[pvs])
 i = 0
@@ -58,109 +66,139 @@ while True:
 ```
 
 ```python
-# client.py -- get all 180 in a loop, report cgroup anon
-import time
+# client.py -- ARM in {n1, n180, monitor}
+import os, sys, time, threading
 from p4p.client.thread import Context
+
+MB = 1024.0 * 1024.0
+ARM = os.environ.get("ARM", "n180")
+N_PV = {"n1": 1, "n180": 180, "monitor": 180}[ARM]
 
 def anon_mb():
     with open("/sys/fs/cgroup/memory.stat") as f:
-        for line in f:
-            k, _, v = line.partition(" ")
+        for l in f:
+            k, _, v = l.partition(" ")
             if k == "anon":
-                return int(v) / 1048576
+                return int(v) / MB
 
-names = [f"SPLIT:PV:{i:04d}" for i in range(180)]
+names = [f"SPLIT:PV:{i:04d}" for i in range(N_PV)]
 ctx = Context("pva")
-time.sleep(8)                     # let channels establish before the baseline
-a0, gets, t0, tl = anon_mb(), 0, time.monotonic(), time.monotonic()
-while True:
-    for n in names:
-        ctx.get(n, timeout=5); gets += 1
-    if time.monotonic() - tl >= 60:
-        d = anon_mb() - a0
-        print(f"{time.monotonic()-t0:.0f}s gets={gets} anon_delta={d:+.2f}MB "
-              f"kb_per_1k={d*1024/gets*1000:+.2f}")
-        tl = time.monotonic()
+time.sleep(10)                              # let channels establish
+a0, ops, t0, tl = anon_mb(), 0, time.monotonic(), time.monotonic()
+
+if ARM == "monitor":
+    counter = {"n": 0}; lock = threading.Lock()
+    def cb(v):
+        with lock: counter["n"] += 1
+    subs = [ctx.monitor(n, cb) for n in names]
+    while True:
+        time.sleep(1)
+        if time.monotonic() - tl >= 60:
+            with lock: ops = counter["n"]
+            d = anon_mb() - a0
+            print(f"{time.monotonic()-t0:.0f}s ops={ops} anon_delta={d:+.2f}MB "
+                  f"kb_per_1k={d*1024/max(ops,1)*1000:+.4f}")
+            tl = time.monotonic()
+else:
+    while True:
+        for n in names:
+            ctx.get(n, timeout=5); ops += 1
+        if time.monotonic() - tl >= 60:
+            d = anon_mb() - a0
+            print(f"{time.monotonic()-t0:.0f}s ops={ops} anon_delta={d:+.2f}MB "
+                  f"kb_per_1k={d*1024/max(ops,1)*1000:+.4f}")
+            tl = time.monotonic()
 ```
 
-Note: `EPICS_PVA_NAME_SERVERS` must be given as an **IP**, not a hostname — pvxs rejects DNS
-names with *"IPv4 address too long"*.
+Note: `EPICS_PVA_NAME_SERVERS` must be given as an **IP**, not a hostname — pvxs
+rejects DNS names with *"IPv4 address too long"*.
 
 ### Result
 
-Client, 15 minutes, 3,500 gets/s:
+Same server, three client arms, ~93 min each:
 
-```
-540s   gets=1904940   anon_delta=+15.80MB
-600s   gets=2115360   anon_delta=+16.12MB
-660s   gets=2331000   anon_delta=+16.48MB
-720s   gets=2544660   anon_delta=+16.84MB
-780s   gets=2760480   anon_delta=+17.20MB
-840s   gets=2971440   anon_delta=+17.54MB
-900s   gets=3185280   anon_delta=+17.91MB
-```
+| Arm | PVs | Path | Ops | Rate | Δ anon | Per 1k ops | Verdict |
+|---|---|---|---|---|---|---|---|
+| `n180` | 180 | `get()` | 8.56 M | 1,532/s | **+32.96 MB** | **+3.94 KB** | **leaks** |
+| `n1` | 1 | `get()` | 10.85 M | 1,943/s | +0.10 MB | +0.010 KB | flat |
+| `monitor` | 180 | `monitor()` | 257 M callbacks | 45,968/s | +3.02 MB | +0.012 KB | flat |
 
-Steady **+0.36 MB/min** (~21 MB/h). There is a fixed ~13 MB startup offset from interpreter
-and channel setup; the slope after that is constant, giving roughly **1.7-2.1 KB per 1,000
-gets**.
+The `n1` arm did **more** gets than `n180` (10.85 M vs 8.56 M in the same window) and
+grew 300× less. So the leak is **not per-`get`** — it requires multiple distinct
+channels.
 
-Server over the same period, doing **637 million posts**:
+Server, same period, measured separately:
 
-```
- 960s  posts=510569460  anon_delta=+13.88MB
-1200s  posts=636876000  anon_delta=+13.89MB
-```
+| Path | PVs | Ops | Rate | Δ anon | Per 1k ops | Verdict |
+|---|---|---|---|---|---|---|
+| `SharedPV.post()` | 180 | 2.93 B | 381,515/s | +42.84 MB | +0.015 KB | flat |
 
-Flat — 0.01 MB across 127 million additional posts. So the server side and `SharedPV.post()`
-are not implicated.
+Flat per op — the ~43 MB delta over 2.93 billion posts is 3 orders of magnitude below
+the client rate; the extrapolated production-rate contribution is effectively zero.
 
 ### Additional observations
 
-- **Independent of value handling on the client.** Converting the returned `Value` to numpy
-  versus discarding it made no difference (two arms, identical rates).
-- **`SharedPV.post()` is clean**, tested four ways in a separate experiment: reusing one
-  `Value` and mutating it in place vs. constructing a fresh `Value` per post, crossed with
-  scalar and 10,000-element array payloads. Flat across **26.6 billion posts** (largest delta
-  1.84 MB, and identical at minute 1 and hour 8.6).
-- **Non-reclaimable.** Growth is in cgroup `anon`, survives `malloc_trim(0)`, and appears in
-  the `brk` heap rather than in CPython's `mmap` arenas — so it is native, not Python objects.
-  `tracemalloc` shows nothing.
-- **Reproduced under glibc.** Not an allocator artifact; we removed a tcmalloc preload earlier
-  in this investigation and the behaviour is unchanged.
+- **`SharedPV.post()` is clean**, tested four ways in a separate experiment: reusing
+  one `Value` and mutating it in place vs. constructing a fresh `Value` per post,
+  crossed with scalar and 10,000-element array payloads. Flat across **26.6 billion
+  posts** (largest delta 1.84 MB, identical at minute 1 and hour 8.6).
+- **`unpack_value` is not the culprit.** Combined server+client arms with
+  (`pva-get`) and without (`pva-get-unpack`) unpack give identical rates.
+- **Non-reclaimable.** Growth is in cgroup `anon`, survives `malloc_trim(0)`, and
+  appears in the `brk` heap rather than in CPython's `mmap` arenas. `tracemalloc`
+  reads flat.
+- **Reproduced under glibc.** Not an allocator artifact; a tcmalloc `LD_PRELOAD` was
+  removed earlier in this investigation and behaviour is unchanged.
 
 ### Impact
 
-At our production rate (~257 gets/s) this is 1.60 MB/h, so a service is forced to restart
-every few weeks. Not urgent for us, but it puts a ceiling on uptime for any long-running
-polling client.
+At 257 gets/s across 180 PVs this is 1.60 MB/h, so a long-running polling client is
+forced to restart every few weeks. Not urgent for us, but it puts a ceiling on uptime
+for any client that polls a moderately sized PV set.
+
+### Workaround
+
+`Context.monitor()` on the same 180 PVs is flat over 250 M+ callbacks (see table). We
+have not deployed it as our workaround because monitors are unreliable through a
+socat proxy in front of our IOCs (that is a proxy issue, not a p4p one). Anyone whose
+monitors work should prefer them.
 
 ### Question
 
-Is there a supported way to avoid this — for example, does `Context.monitor()` share the
-affected path? We use repeated `get()` rather than monitors because monitors proved unreliable
-through a socat proxy in our deployment, but we would switch if monitors are unaffected.
+Given the shape — leak triggered by channel count, not by call rate, not present in
+`monitor()` — is there a shared client-side get-request or channel-cache path that
+retains something per-channel-per-`get`? Any pointers to where in the client code to
+look would help us produce a fix rather than a workaround.
 
 ---
 
 ## Before filing
 
-Two things worth completing so the report is not immediately bounced back:
+Two more data points are needed to state the scaling law rather than the two-point
+lower/upper bound:
 
-1. **Minimise the PV count.** The reproducer uses 180 PVs. Re-run with 1 PV to establish
-   whether the leak is per-`get` or per-channel-operation. If it is per-channel, the framing
-   changes.
-2. **Check `Context.monitor()`.** If monitors are clean that is both a workaround for us and
-   useful information for the maintainer about where to look.
+| | PVs | gets/s | Leak |
+|---|---|---|---|
+| production | 180 | 257 | 1.60 MB/h |
+| `n180` | 180 | 1,541 | 21.8 MB/h |
+
+Same PV count, 6× the rate, 13× the leak. On a per-`get` basis they are 2.3× apart.
+Neither pure per-channel-per-second nor pure per-get fits. **`pva-n10` and `pva-n60`
+arms** (identical script, `ARM` maps to PV count in `scripts/pva_get_variants.py`)
+would fix the shape before we assert it upstream.
 
 Also worth doing but not blocking:
 
 - Test a second p4p version to give a comparison point.
-- Confirm on a non-containerised host, in case cgroup `anon` accounting on this platform is a
-  factor (unlikely — RSS moves in step).
+- Confirm on a non-containerised host, in case cgroup `anon` accounting on this
+  platform is a factor (unlikely — RSS moves in step).
 
 ## Supporting material
 
-- `docs/second-leak-investigation.md` — the full bisection, including the layers ruled out
-- `scripts/pva_get_leak_test.py` — combined server+client version
+- `docs/second-leak-investigation.md` — the full bisection, including the layers ruled
+  out (`libtao`, `lume_bmad`, torch, h5py, numpy, `SharedPV.post()`, `unpack_value`)
+- `scripts/pva_get_variants.py` — the `n1`/`n180`/`monitor` arms in one file
 - `scripts/pva_post_leak_test.py` — the four-arm `post()` test
-- `kubernetes/pva-split-test.yaml` — the separated client/server manifests
+- `scripts/pva_get_leak_test.py` — combined server+client get test
+- `kubernetes/pva-split-test.yaml` — separated client/server manifests
+- `kubernetes/pva-get-variants.yaml` — the three variant arms
