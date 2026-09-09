@@ -1,10 +1,17 @@
 # Locating the second memory leak
 
 **Period:** 2026-09-08 to 2026-09-09
-**Outcome:** localised to the PVA get-request path (p4p 4.2.2). `libtao`, `lume_bmad`,
-`beamphysics`, torch, h5py, numpy and `SharedPV.post()` all exonerated.
-**Status:** confirmation runs in progress; one discriminating test still outstanding before
-this can be filed upstream (see [Open question](#open-question-client-or-server)).
+**Outcome:** localised to the p4p client `Context.get()` path (p4p 4.2.2). Scaling
+across N=1/10/60/180 channels shows the **per-`get` leak grows roughly linearly with
+channel count** (~0.02 bytes per get per channel), pointing at a per-channel data
+structure touched inside each `get()`. `heaptrack` names the accumulating
+allocations as Python-level (`dictresize`, `PyUnicode_New`, **`_PyType_AllocNoTrack`
+firing 1,441× in 5 min**), i.e. Python type-objects manufactured per operation
+inside p4p's Cython layer — not a pure C++ leak in pvxs. `libtao`, `lume_bmad`,
+`beamphysics`, torch, h5py, numpy, `SharedPV.post()`, `unpack_value`, the p4p
+**server**, and `Context.monitor()` are all exonerated.
+**Status:** enough evidence to file upstream; draft at
+`docs/p4p-client-get-leak-issue.md`.
 
 ---
 
@@ -192,6 +199,10 @@ Both arms are identical, so **`unpack_value` is innocent**.
 | `unpack_value` | identical to plain get | Clean |
 | p4p **server** get handling | flat over 637 M posts | Clean |
 | **p4p client `Context.get()`** | **~1.7-2.1 KB / 1,000 gets** | **Leaks** |
+| `Context.monitor()`, 180 PVs | +3.03 MB over 541 M callbacks | Clean |
+| `Context.get()`, N=1 | +0.10 MB over 22 M gets | Clean |
+| `Context.get()`, N=10 | +2.25 MB, +0.169 KB/1k over 13.6 M gets | Leaks |
+| `Context.get()`, N=60 | +11.73 MB, +0.807 KB/1k over 14.9 M gets | Leaks |
 
 ---
 
@@ -217,13 +228,142 @@ matters.
 **Conclusion: the leak is in the p4p client `Context.get()`.** Server-side get handling and
 `SharedPV.post()` are both clean.
 
+---
+
+## 9. Scaling curve — resolved: per-channel-touched-per-`get`
+
+Five arms of `scripts/pva_get_variants.py` against the same server, `ARM` selecting
+channel count (`n1`/`n10`/`n60`/`n180`) or mode (`monitor` on 180 PVs). All rates
+stable, `kb_per_1k` converged.
+
+| Arm | PVs | Path | Ops | Rate | Δ anon | Per 1k ops | MB/h |
+|---|---|---|---|---|---|---|---|
+| `pva-n1` | 1 | `get()` | 22.09 M | 1,850/s | +0.10 MB | +0.005 KB | 0.03 |
+| `pva-n10` | 10 | `get()` | 13.63 M | 2,227/s | +2.25 MB | +0.169 KB | 1.35 |
+| `pva-n60` | 60 | `get()` | 14.89 M | 2,457/s | +11.73 MB | +0.807 KB | 6.97 |
+| `pva-n180` | 180 | `get()` | 17.47 M | 1,461/s | +70.42 MB | +4.127 KB | 21.71 |
+| `pva-monitor` | 180 | `monitor()` | 546.7 M cb | 45,692/s | +3.03 MB | +0.006 KB | 0.91 |
+
+Two clean readings from the shape:
+
+**Per-`get` leak scales linearly with channel count above N=1.** Bytes per get:
+0.005 (N=1) → 0.17 (N=10) → 0.81 (N=60) → 4.13 (N=180). Dividing by N: 0.017,
+0.013, 0.023 bytes/get/PV. So each `get()` leaks ≈ 0.02 · N bytes on average.
+That is what a client-side mechanism produces if every `get()` traverses a
+per-channel structure (a channel map lookup, an operation state list, a request
+builder that walks known channels) and each traversal-step leaks a small
+increment.
+
+**MB/h is close to linear in N once N ≥ 10.** Slopes MB/h/PV: 0.135, 0.116, 0.121 for
+N=10/60/180 → about **0.12 MB/h per channel at ~2000 gets/s**. N=1 sits well below
+that line — the first channel is essentially free.
+
+**`monitor()` remains flat.** 541 M callbacks against 180 PVs, +3.03 MB pinned
+since t=782 s. The affected path is `get()`-specific.
+
+### Residual: reproducer over-predicts production
+
+The 0.12 MB/h/PV rule at ~2000 gets/s predicts production (180 PVs, 257 gets/s) at
+~2.7 MB/h if bytes/get held constant, or ~2.9 MB/h if we linearly scaled `n180`
+down by rate. Production actually shows **1.60 MB/h** — about half. Rate ratio 5.7×,
+leak ratio 13.6×, so leak grows faster than linearly in rate. Possible causes:
+socat proxy in production affects request shape, or the production `gets/s` figure
+is derived from wall-clock cycle time rather than per-op timing. Worth noting;
+does not change the diagnosis.
+
+---
+
+## 10. Native profile — resolved: Python-object retention in the Cython layer
+
+`kubernetes/pva-heaptrack.yaml` runs the `n180` workload under
+`heaptrack 1.5.0` inside the digest-pinned production image. The pod
+`apt install`s heaptrack at start (no image rebuild), executes 300 s of
+workload under `heaptrack python /probe/getvar.py`, then runs
+`heaptrack_print` and sleeps so the summary can be pulled via `kubectl
+exec` / `kubectl cp`.
+
+Headline numbers, aligned across the two independent measurements:
+
+| Method | Duration | Rate | Notes |
+|---|---|---|---|
+| heaptrack "leaked at exit" | 307 s | ~17 MB/h | 1.45 MB unfreed at process exit |
+| cg_anon delta (same pod) | 307 s | ~22 MB/h | +0.36 MB/min in steady state |
+| `pva-n180` baseline (no heaptrack) | 199 min | 21.71 MB/h | Table in §9 |
+
+The heaptrack rate agrees with the black-box `anon` rate to within
+heaptrack's own overhead — so the profile captured the actual leak, not a
+distinct artefact.
+
+### Top accumulating allocation sites at exit
+
+Startup-only allocations (Python arenas from interpreter init, 786 KB over 4
+calls, one-shot) omitted. The multi-call entries are the accumulating ones:
+
+| Leaked bytes | # calls | Leaf function | Meaning |
+|---|---|---|---|
+| 219 KB | 1,200 | `dictresize::new_keys_object` | Python dict grew (resized 1,200×) |
+| 199 KB | 161 | `_PyUnicode_JoinArray` | string-join results retained |
+| 170 KB | 1,177 | `PyUnicode_New` | new Python strings retained |
+| 152 KB | **1,441** | `_PyType_AllocNoTrack` | **new Python type objects** |
+| 139 KB | 4,312 | `PyObject_Malloc` | small Python objects |
+
+The 1,441 leaked type-object allocations are the smoking gun. Python types
+are usually built once per class. Creating ~1,441 of them in 5 minutes,
+never freed, implies a distinct Python type is being manufactured per
+operation (or per channel × operation) and cached under a key that doesn't
+dedupe.
+
+### Call-count profile: what fires per-`get()`
+
+Top per-op allocators from the same trace, at 445 k gets in 307 s:
+
+| Calls | Per get | Site |
+|---|---|---|
+| 890 k | 2× | `pvxs::client::GetBuilder::_exec_get()` |
+| 890 k | 2× | `pvxs::client::detail::CommonBase::_buildReq()` |
+| 890 k | 2× | `pvxs::TypeDef::TypeDef(TypeCode, initializer_list<>)` |
+| 890 k | 2× | `pvxs::client::Channel::createOperations()` |
+| 890 k | 2× | `pvxs::client::gpr_setup(...)` |
+| 890 k | 2× | `pvxs::Value::Value(shared_ptr<>)` |
+
+The C++ side rebuilds a `TypeDef` per operation (2× per `get()`); the
+Cython wrapper builds a Python type from it; one in every ~617 `TypeDef`
+constructions results in a new Python type that is not freed
+(1,441 leaked types / 890 k TypeDefs). Most `get()`s reuse a cached type;
+some don't — the cache is likely keyed by Channel identity or `TypeDef`
+pointer rather than by structural equality, so N distinct channels
+gradually populate their own type entries.
+
+### Why `tracemalloc` missed this
+
+`_PyType_AllocNoTrack` bypasses CPython's GC tracker, and `tracemalloc`
+hooks into the same tracker for non-arena allocations. So type objects
+allocated through this path do not appear in `tracemalloc` snapshots. Dict
+growth is also cache-behaviour — the dict itself is a long-lived object
+whose backing array grows — which doesn't register as new
+`tracemalloc`-visible allocations at the Python object level.
+
+### Verdict
+
+- The leak is retained Python state inside p4p's Cython bindings, not a
+  pure C++ leak in pvxs.
+- Signature-based hypothesis from §9 (per-channel structure walked per
+  `get()`) is refined: the per-channel structure is a **schema→PyType
+  cache** that fails to dedupe across channels sharing the same NT type.
+- Suspected file: `p4p/_p4p.pyx`, around the `ClientOperation`
+  construction and the type-wrapping path where `pvxs::Value` schemas
+  become Python NT types.
+
+---
+
 ## Open questions
 
-Still untested:
-- Whether it scales with PV count or is strictly per-`get` (the test uses 180 PVs).
-- Whether `Context.monitor()` avoids it. Production uses snapshot mode because monitors were
-  unreliable through the socat proxy, but monitors are the obvious workaround if they are clean.
+Remaining:
+- Exact `p4p/_p4p.pyx` function and line — needs the heaptrack flamegraph
+  in `heaptrack_gui` or a code walk.
 - Which p4p/pvxs versions are affected.
+- Whether the super-linear rate dependence between reproducer and
+  production reflects a proxy artefact or a real second-order effect.
 
 ---
 
