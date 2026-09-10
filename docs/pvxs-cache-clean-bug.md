@@ -6,6 +6,28 @@
 **Severity**: Medium — causes unbounded RSS growth over days of continuous operation
 **Discovered in**: virtual-accelerator-digital-twin, investigating RSS leak under long-running `p4p` PVA get workloads
 
+### Source Code Locations in pvxs
+
+All file paths are relative to the pvxs repository root (`https://github.com/epics-base/pvxs`).
+
+| Area | File | Lines / Symbol | Description |
+|---|---|---|---|
+| **Bug site** | `src/client.cpp` | ~1339–1373, `ContextImpl::cacheClean()` | Broken mark/sweep GC — `garbage = true` set before the mark test, making the mark branch dead code |
+| Channel cache map | `src/clientimpl.h` | ~297, `chanByName` | `std::map<pair<string,string>, shared_ptr<Channel>>` — the cache that `cacheClean()` iterates |
+| Channel garbage flag | `src/clientimpl.h` | ~193, `Channel::garbage` | `bool garbage = false;` — the mark flag that `Channel::build()` resets |
+| Channel build (reuse) | `src/client.cpp` | ~366–379, `Channel::build()` | Resets `garbage = false`, inserts into `chanByCID` and `searchBuckets` |
+| Channel destructor | `src/client.cpp` | ~117, `~Channel` → `disconnect(nullptr)` | The `nullptr` path is a no-op — no `chanByCID`/`searchBuckets` cleanup |
+| `chanByCID` map | `src/clientimpl.h` | ~312 | `std::map<uint32_t, weak_ptr<Channel>>` — dead entries accumulate under churn |
+| `searchBuckets` | `src/clientimpl.h` | ~308 | `vector<list<weak_ptr<Channel>>>` — dead `weak_ptr`s cleaned lazily in `tickSearch()` |
+| Search tick cleanup | `src/client.cpp` | ~1108–1111, `tickSearch()` | Lazy `.lock()` check on `searchBuckets` entries per bucket rotation |
+| Event loop queue | `src/evhelper.cpp` | ~130, `actions` | `std::deque<Work>` — unbounded work queue, no backpressure |
+| Dispatch (enqueue) | `src/evhelper.cpp` | ~297–316, `evbase::_dispatch()` | `emplace_back(...)` with no size limit |
+| Timer interval | `src/client.cpp` | ~57 | `constexpr timeval channelCacheCleanInterval{10,0}` — 10s GC tick |
+| Timer entry point | `src/client.cpp` | ~1375, `cacheCleanS()` | Static callback that invokes `cacheClean("", Context::Clean)` |
+| Connection per-server | `src/clientconn.cpp` | ~51–53, `connByAddr` | `weak_ptr` map — all PVs on same IOC share one TCP socket |
+| Connection destructor | `src/clientconn.cpp` | ~180, `~Connection` | Socket teardown only when last channel ref drops |
+| GPROp destructor | `src/clientget.cpp` | ~597 | Async destruction via `loop.tryInvoke()` — delays `use_count()` drop |
+
 ---
 
 ## Summary
@@ -33,6 +55,8 @@ The grace period matters: if a new `get()` reuses the Channel between ticks,
 few seconds keeps its Channel warm indefinitely.
 
 ### The bug
+
+> `src/client.cpp:~1351–1369` — inside `ContextImpl::cacheClean()`
 
 ```cpp
 else if(action!=Context::Clean || cur->second.use_count()<=1) {
@@ -123,6 +147,8 @@ broken-GC effect:    ~no churn → NO LEAK         constant churn → LEAK
 The churn creates dead Channel objects. When `cacheClean` sweeps with `action == Clean`
 (client.cpp:1362-1369):
 
+> `src/client.cpp:~1362–1369` — sweep branch inside `cacheClean()`
+
 ```cpp
 auto trash(std::move(cur->second));   // shared_ptr moved out of map
 chanByName.erase(cur);                // map entry removed
@@ -132,6 +158,8 @@ chanByName.erase(cur);                // map entry removed
 
 `~Channel` calls `disconnect(nullptr)` (client.cpp:117). The `nullptr` path
 (client.cpp:206-207) does **nothing** — no `CMD_DESTROY_CHANNEL`, no SID/CID map cleanup:
+
+> `src/client.cpp:~206–207` — `Channel::disconnect()`, `nullptr` path
 
 ```cpp
 if(!self) { // in ~Channel
@@ -146,6 +174,7 @@ But `Channel::build()` (client.cpp:375) inserted entries into two other maps tha
    Channel inserts `chanByCID[chan->cid] = chan` (client.cpp:375). When the Channel dies,
    the `weak_ptr` expires but **the map entry (tree node) is never erased**. It's only
    skipped lazily during CID allocation (client.cpp:370):
+   <!-- src/client.cpp:~370 — Channel::build(), CID allocation loop -->
    ```cpp
    while(context->chanByCID.find(context->nextCID)!=context->chanByCID.end())
        context->nextCID++;
@@ -205,6 +234,8 @@ This is a **strong reference** map. Each `Channel` also holds a `shared_ptr<Cont
 
 A periodic timer fires every 10 seconds (line 57):
 
+> `src/client.cpp:~57`
+
 ```cpp
 constexpr timeval channelCacheCleanInterval{10,0};
 ```
@@ -214,6 +245,8 @@ This calls `cacheCleanS()` (line 1375), which calls `cacheClean("", Context::Cle
 ### Intended Two-Phase GC
 
 The `Channel` struct has a `garbage` flag (line 193 of `clientimpl.h`):
+
+> `src/clientimpl.h:~193`
 
 ```cpp
 bool garbage = false;
@@ -230,6 +263,8 @@ This gives channels a grace period — if a new operation reuses the channel bet
 ## The Bug
 
 In `cacheClean()` (lines 1339–1373):
+
+> `src/client.cpp:~1339–1373` — `ContextImpl::cacheClean()` (buggy version)
 
 ```cpp
 void ContextImpl::cacheClean(const std::string& name, Context::cacheAction action)
@@ -337,6 +372,8 @@ the per-get Channel rebuild cost under churn.
 ## Proposed Fix
 
 Move the `garbage = true` assignment into the mark branch:
+
+> `src/client.cpp:~1339–1373` — `ContextImpl::cacheClean()` (fixed version)
 
 ```cpp
 void ContextImpl::cacheClean(const std::string& name, Context::cacheAction action)
@@ -464,6 +501,8 @@ a Channel with `action == Clean`, the Channel's `shared_ptr` drops and `~Channel
 `disconnect(nullptr)` (client.cpp:117). The `nullptr` path (client.cpp:206-207) is a
 no-op:
 
+> `src/client.cpp:~206–207` — `Channel::disconnect()`, `nullptr` path
+
 ```cpp
 if(!self) { // in ~Channel
     // searchBuckets cleaned in tickSearch()
@@ -472,6 +511,8 @@ if(!self) { // in ~Channel
 ```
 
 But `Channel::build()` inserted entries into two maps when the Channel was created:
+
+> `src/client.cpp:~375–379` — `Channel::build()`
 
 ```cpp
 // client.cpp:375 — inserted on every Channel::build()
@@ -484,8 +525,9 @@ context->initialSearchBucket.push_back(chan);  // weak_ptr, cleaned lazily
 **`chanByCID`** (`std::map<uint32_t, weak_ptr<Channel>>`, clientimpl.h:312):
 - Entry inserted per `Channel::build()`, never erased when Channel dies
 - `weak_ptr` expires but tree node (~48-64 bytes) stays
-- CID allocation (client.cpp:370) skips dead entries but never erases them:
+- CID allocation (`src/client.cpp:~370`) skips dead entries but never erases them:
   ```cpp
+  // src/client.cpp:~370 — Channel::build(), CID allocation loop
   while(context->chanByCID.find(context->nextCID)!=context->chanByCID.end())
       context->nextCID++;  // skips, but dead entries remain in map
   ```
@@ -499,8 +541,9 @@ context->initialSearchBucket.push_back(chan);  // weak_ptr, cleaned lazily
 
 **Proposed fix** — compact `chanByCID` during `cacheClean`:
 
+> `src/client.cpp` — add after the main `while` loop in `ContextImpl::cacheClean()` (~line 1373)
+
 ```cpp
-// client.cpp — add to cacheClean(), after the main while loop
 // Compact chanByCID: erase expired weak_ptr entries left by destroyed Channels
 {
     auto next(chanByCID.begin()), end(chanByCID.end());
@@ -519,8 +562,9 @@ For `searchBuckets`, the existing lazy cleanup in `tickSearch` is adequate once 
 primary cacheClean fix eliminates the churn that overwhelms it. If needed, a similar
 compaction pass could be added to `tickSearch`:
 
+> `src/client.cpp:~1108` — add at start of `tickSearch()` bucket processing
+
 ```cpp
-// client.cpp — add at the start of tickSearch() for the current bucket
 // Eagerly purge expired weak_ptrs before processing the bucket
 {
     auto& bkt = (kind == SearchKind::initial) ? initialSearchBucket : searchBuckets[idx];
