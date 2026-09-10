@@ -207,10 +207,10 @@ Dead `weak_ptr` entries in `chanByCID` are checked lazily (on lookup). The map i
 
 ### Test Suite
 
-The file `scripts/pvxs-fix-test/test_pva_get_leak.py` exercises the p4p/pvxs get path in isolation (no docker, no bmad) with:
+The file `scripts/cache-fix-test/test_pva_get_leak.py` exercises the p4p/pvxs get path in isolation (no docker, no bmad) with:
 - 500 in-process PVs served via `p4p.server.thread.SharedPV`
 - Repeated gets, context open/close cycles, soak test with RSS timeline
-- Valgrind memcheck integration via `scripts/pvxs-fix-test/run_test.sh`
+- Valgrind memcheck integration via `scripts/cache-fix-test/run_test.sh`
 
 ### Docker Test Images
 
@@ -246,6 +246,8 @@ Valgrind memcheck found **zero definitely-lost or indirectly-lost bytes** from p
 ### RSS Measurements — Stock vs Fixed (2026-09-09)
 
 Test parameters: 5000 get iterations × 500 PVs = 2.5M get() calls, 30 context cycles, 60s soak.
+
+Full results: [`scripts/cache-fix-test/stock_result.txt`](../scripts/cache-fix-test/stock_result.txt) | [`scripts/cache-fix-test/fixed_result.txt`](../scripts/cache-fix-test/fixed_result.txt)
 
 #### repeated_gets (2.5M gets, single context)
 
