@@ -13,12 +13,12 @@ All file paths are relative to the pvxs repository root (`https://github.com/epi
 | Area | File | Lines / Symbol | Description |
 |---|---|---|---|
 | **Bug site** | `src/client.cpp` | ~1339–1373, `ContextImpl::cacheClean()` | Broken mark/sweep GC — `garbage = true` set before the mark test, making the mark branch dead code |
-| Channel cache map | `src/clientimpl.h` | ~297, `chanByName` | `std::map<pair<string,string>, shared_ptr<Channel>>` — the cache that `cacheClean()` iterates |
-| Channel garbage flag | `src/clientimpl.h` | ~193, `Channel::garbage` | `bool garbage = false;` — the mark flag that `Channel::build()` resets |
+| Channel cache map | `src/clientimpl.h` | ~295, `chanByName` | `std::map<pair<string,string>, shared_ptr<Channel>>` — the cache that `cacheClean()` iterates |
+| Channel garbage flag | `src/clientimpl.h` | ~192, `Channel::garbage` | `bool garbage = false;` — the mark flag that `Channel::build()` resets |
 | Channel build (reuse) | `src/client.cpp` | ~366–379, `Channel::build()` | Resets `garbage = false`, inserts into `chanByCID` and `searchBuckets` |
 | Channel destructor | `src/client.cpp` | ~117, `~Channel` → `disconnect(nullptr)` | The `nullptr` path is a no-op — no `chanByCID`/`searchBuckets` cleanup |
-| `chanByCID` map | `src/clientimpl.h` | ~312 | `std::map<uint32_t, weak_ptr<Channel>>` — dead entries accumulate under churn |
-| `searchBuckets` | `src/clientimpl.h` | ~308 | `vector<list<weak_ptr<Channel>>>` — dead `weak_ptr`s cleaned lazily in `tickSearch()` |
+| `chanByCID` map | `src/clientimpl.h` | ~291, `chanByCID` | `std::map<uint32_t, weak_ptr<Channel>>` — dead entries accumulate whenever any channel is swept |
+| `searchBuckets` | `src/clientimpl.h` | ~287, `searchBuckets` | `vector<list<weak_ptr<Channel>>>` — dead `weak_ptr`s cleaned lazily in `tickSearch()` |
 | Search tick cleanup | `src/client.cpp` | ~1108–1111, `tickSearch()` | Lazy `.lock()` check on `searchBuckets` entries per bucket rotation |
 | Event loop queue | `src/evhelper.cpp` | ~130, `actions` | `std::deque<Work>` — unbounded work queue, no backpressure |
 | Dispatch (enqueue) | `src/evhelper.cpp` | ~297–316, `evbase::_dispatch()` | `emplace_back(...)` with no size limit |
@@ -110,11 +110,48 @@ result:       constant alloc/free thrash       Channel stays warm, reused
 Three things drive RSS up in the broken case:
 
 1. **Dead bookkeeping entries accumulate (verified).** Each Channel::build() inserts into
-   `chanByCID` (weak_ptr map, clientimpl.h:312) and `searchBuckets` (weak_ptr lists,
-   clientimpl.h:308). When `~Channel` runs via `disconnect(nullptr)`, these entries are
+   `chanByCID` (weak_ptr map, clientimpl.h:291) and `searchBuckets` (weak_ptr lists,
+   clientimpl.h:287). When `~Channel` runs via `disconnect(nullptr)`, these entries are
    **never erased** — the weak_ptr expires but the map tree node (~48-64 bytes) stays.
    Under churn with 500 PVs, each sweep+rebuild cycle adds ~500 dead entries to each
    structure. Over hours, thousands of dead entries → megabytes of leaked nodes.
+
+   **Why entries never get reused — the CID allocation mechanism:**
+   `chanByCID` is a `std::map<uint32_t, weak_ptr<Channel>>`. When a Channel is swept from
+   `chanByName`, its `shared_ptr` drops and the `weak_ptr` in `chanByCID` expires — but
+   the **map node** (key + expired value) remains. When `Channel::build()` allocates a CID
+   for a new Channel (client.cpp:370–371):
+
+   ```cpp
+   while(context->chanByCID.find(context->nextCID) != context->chanByCID.end())
+       context->nextCID++;
+   ```
+
+   `std::map::find()` checks **key existence**, not whether the `weak_ptr` is alive. A dead
+   entry at key=42 still makes `find(42) != end()` true. So `nextCID` skips past all dead
+   entries and always allocates a **new, never-before-used CID**. The new Channel is inserted
+   at that fresh CID (client.cpp:375):
+
+   ```cpp
+   context->chanByCID[chan->cid] = chan;  // new key, never replaces a dead entry
+   ```
+
+   The dead entry at key=42 is never overwritten — it sits permanently in the map. Each
+   churn cycle adds one dead node per PV. `nextCID` starts at `0x12345678` (clientimpl.h:244)
+   and only moves forward. After enough churn, it wraps the `uint32_t` range back into CID
+   space occupied by dead entries, forcing the `while` loop to scan through them — degrading
+   both memory and CID allocation performance.
+
+   **This accumulation is independent of the cacheClean mark/sweep fix.** The `chanByCID`
+   leak is a structural defect in `Channel::build()` and `~Channel`: entries are inserted
+   but never removed. The cacheClean fix reduces the *rate* dramatically (channels stay warm
+   → no churn → no dead entries under normal polling), but any channel that is legitimately
+   swept — because the PV is no longer polled, the workload changes, or a connection drops —
+   still leaves a dead `chanByCID` entry behind. Over days or weeks of operation with PV set
+   changes, dead entries accumulate even with the cacheClean fix applied. Without the fix,
+   the rate is catastrophic (~500 dead entries every 10s under 500-PV polling); with the fix,
+   it is slow but still unbounded. Both fixes are needed: the cacheClean mark fix to stop the
+   churn, and the `chanByCID` compaction to prevent long-term accumulation.
 
 2. **Work queue backlog holds shared_ptrs.** All pvxs client work runs on **one** event-loop
    worker thread, fed by a single **unbounded** queue (`std::deque<Work> actions`,
@@ -170,7 +207,7 @@ if(!self) { // in ~Channel
 But `Channel::build()` (client.cpp:375) inserted entries into two other maps that are
 **never cleaned up** by this path:
 
-1. **`chanByCID`** — `std::map<uint32_t, weak_ptr<Channel>>` (clientimpl.h:312). Each new
+1. **`chanByCID`** — `std::map<uint32_t, weak_ptr<Channel>>` (clientimpl.h:291). Each new
    Channel inserts `chanByCID[chan->cid] = chan` (client.cpp:375). When the Channel dies,
    the `weak_ptr` expires but **the map entry (tree node) is never erased**. It's only
    skipped lazily during CID allocation (client.cpp:370):
@@ -181,7 +218,7 @@ But `Channel::build()` (client.cpp:375) inserted entries into two other maps tha
    ```
    Dead entries pile up. Each `std::map` tree node is ~48-64 bytes.
 
-2. **`searchBuckets`** — `vector<list<weak_ptr<Channel>>>` (clientimpl.h:308). Each new
+2. **`searchBuckets`** — `vector<list<weak_ptr<Channel>>>` (clientimpl.h:287). Each new
    Channel pushes into `initialSearchBucket` (client.cpp:379). `tickSearch` only `.lock()`
    checks entries when their bucket rotates (client.cpp:1108-1111). Dead `weak_ptr`s sit in
    the lists until that bucket fires. Under fast churn, lists grow faster than they drain.
@@ -191,7 +228,12 @@ Under the broken GC with 500 PVs, each 10s sweep+rebuild cycle adds up to **500 
 cleaned. Over 2.5M gets with periodic sweeps, that's thousands of dead entries → megabytes
 of leaked tree nodes and list nodes.
 
-**With the fix**: no churn → Channels stay warm → no dead entries → maps stay bounded.
+**With the cacheClean fix**: churn rate drops dramatically — channels stay warm under steady
+polling, so dead entry accumulation is negligible. But whenever channels are legitimately
+swept (PV set changes, connection drops, workload changes), dead `chanByCID` entries still
+accumulate. The fix changes the rate from catastrophic to slow, but the structural defect
+remains. See [§5](#5-chanbycid-and-searchbuckets-accumulate-dead-entries-under-any-channel-sweep)
+for the compaction fix that makes maps truly bounded.
 
 ### The fix
 
@@ -212,6 +254,8 @@ connection drops or other lifecycle events.
 
 The `pvxs` client channel cache garbage collector (`cacheClean()`) contains a logic bug that renders its two-phase mark/sweep design ineffective. The "mark" phase is dead code, so the intended 10-second grace period never happens. On the normal timer path, any Channel that is momentarily idle at a cleanup tick is swept immediately. Under sustained high-frequency `ctx.get()` workloads across many PVs, this produces constant create → sweep → rebuild churn: Channels (and their Connections and type registries) are destroyed the instant they go idle and rebuilt on the next get. Because Channel destruction is dispatched asynchronously to the event loop while creation happens synchronously, allocation outpaces reclamation and RSS grows over time.
 
+Independently, a structural defect in `Channel::build()` and `~Channel` causes unbounded growth of the `chanByCID` map: each new Channel inserts a `weak_ptr` entry keyed by a monotonically increasing CID, but no code path ever removes these entries when the Channel is destroyed. The CID allocation loop (`client.cpp:370`) uses `std::map::find()` which checks key existence — not `weak_ptr` liveness — so dead entries are skipped, never reused, and never erased. This accumulation occurs whenever any channel is swept, regardless of whether the cacheClean mark/sweep fix is applied. The cacheClean fix reduces the rate from catastrophic (every 10s under churn) to slow (only on legitimate channel expiry), but both fixes are needed to fully eliminate memory growth.
+
 ---
 
 ## Background
@@ -221,11 +265,11 @@ The `pvxs` client channel cache garbage collector (`cacheClean()`) contains a lo
 `pvxs::client::ContextImpl` maintains a channel cache in:
 
 ```cpp
-// clientimpl.h:297
+// clientimpl.h:295
 std::map<std::pair<std::string, std::string>, std::shared_ptr<Channel>> chanByName;
 ```
 
-This is a **strong reference** map. Each `Channel` also holds a `shared_ptr<ContextImpl>` back-reference (line 181), creating an intentional reference cycle. The comment at line 294–295 states:
+This is a **strong reference** map. Each `Channel` also holds a `shared_ptr<ContextImpl>` back-reference (line 179), creating an intentional reference cycle. The comment at line 292–293 states:
 
 > strong ref. loop through Channel::context
 > explicitly broken by Context::close(), Context::cacheClear(), or ContextImpl::cacheClean()
@@ -244,9 +288,9 @@ This calls `cacheCleanS()` (line 1375), which calls `cacheClean("", Context::Cle
 
 ### Intended Two-Phase GC
 
-The `Channel` struct has a `garbage` flag (line 193 of `clientimpl.h`):
+The `Channel` struct has a `garbage` flag (line 192 of `clientimpl.h`):
 
-> `src/clientimpl.h:~193`
+> `src/clientimpl.h:~192`
 
 ```cpp
 bool garbage = false;
@@ -433,8 +477,9 @@ Each `Connection` has an `rxRegistry` (type description cache) that grows with e
 ### 3. `chanByCID` Map Uses `weak_ptr` But Is Never Compacted
 
 Dead `weak_ptr` entries in `chanByCID` are checked lazily (on lookup, client.cpp:370). The
-map itself never shrinks. Under the broken GC's churn, each sweep+rebuild cycle adds dead
-entries. See §5 for the fix.
+map itself never shrinks. Any channel sweep — whether caused by the broken GC's churn or
+by legitimate expiry with the fix applied — adds dead entries that are never removed. See
+§5 for the fix.
 
 ### 4. Event Loop Work Queue Has No Backpressure
 
@@ -494,10 +539,12 @@ This is a **secondary** fix — the primary fix (cacheClean mark) eliminates the
 would saturate the queue. But the backpressure cap protects against any future scenario
 where enqueue outpaces drain.
 
-### 5. `chanByCID` and `searchBuckets` Accumulate Dead Entries Under Churn
+### 5. `chanByCID` and `searchBuckets` Accumulate Dead Entries Under Any Channel Sweep
 
-This is the **verified accumulation point** for the memory leak. When `cacheClean` sweeps
-a Channel with `action == Clean`, the Channel's `shared_ptr` drops and `~Channel` calls
+This is the **verified accumulation point** for the memory leak, and it is **independent of
+the cacheClean mark/sweep fix**. Whenever any Channel is swept — whether by the broken GC's
+churn, by legitimate expiry after the fix, by connection drops, or by workload changes —
+the Channel's `shared_ptr` drops and `~Channel` calls
 `disconnect(nullptr)` (client.cpp:117). The `nullptr` path (client.cpp:206-207) is a
 no-op:
 
@@ -522,7 +569,7 @@ context->chanByCID[chan->cid] = chan;          // weak_ptr, never erased on dest
 context->initialSearchBucket.push_back(chan);  // weak_ptr, cleaned lazily
 ```
 
-**`chanByCID`** (`std::map<uint32_t, weak_ptr<Channel>>`, clientimpl.h:312):
+**`chanByCID`** (`std::map<uint32_t, weak_ptr<Channel>>`, clientimpl.h:291):
 - Entry inserted per `Channel::build()`, never erased when Channel dies
 - `weak_ptr` expires but tree node (~48-64 bytes) stays
 - CID allocation (`src/client.cpp:~370`) skips dead entries but never erases them:
@@ -533,7 +580,7 @@ context->initialSearchBucket.push_back(chan);  // weak_ptr, cleaned lazily
   ```
 - Under churn (500 PVs × sweeps every 10s): ~500 dead entries/cycle → thousands/hour
 
-**`searchBuckets`** (`vector<list<weak_ptr<Channel>>>`, clientimpl.h:308):
+**`searchBuckets`** (`vector<list<weak_ptr<Channel>>>`, clientimpl.h:287):
 - Dead `weak_ptr`s cleaned lazily in `tickSearch()` when their bucket rotates
   (client.cpp:1108-1111: `auto chan = bucket.front().lock(); if(!chan) { pop; continue; }`)
 - Under fast churn, entries accumulate faster than buckets rotate (30 buckets × 10s = 5

@@ -39,7 +39,9 @@
       "Bash(curl -s \"https://raw.githubusercontent.com/epics-base/p4p/master/src/pvxs_client.cpp\")",
       "Bash(curl -s \"https://api.github.com/repos/epics-base/p4p/git/trees/master?recursive=1\")",
       "Bash(curl -s \"https://raw.githubusercontent.com/epics-base/p4p/master/src/p4p.h\")",
-      "Bash(git ls-remote *)"
+      "Bash(git ls-remote *)",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/epics-base/pvxs/master/src/client.cpp\")",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/epics-base/pvxs/1.5.2/src/client.cpp\")"
     ]
   }
 }
