@@ -1,0 +1,142 @@
+# ---------------------------------------------------------------------------
+# Dockerfile.fixed — p4p with patched pvxslibs (cacheClean fix), built from
+# PyPI source — no ABI mismatch, everything uses epicscorelibs consistently.
+#
+# Build:
+#   cd scripts/pvxs-fix-test
+#   docker build -f Dockerfile.fixed -t pvxs-test-fixed .
+#
+# Run:
+#   docker run --rm -v "$(pwd)":/test pvxs-test-fixed \
+#       --gets 50000 --cycles 200 --soak 1800 --report /test/fixed_result.txt
+#
+# Shell:
+#   docker run --rm -it --entrypoint bash -v "$(pwd)":/test pvxs-test-fixed
+# ---------------------------------------------------------------------------
+
+# ── Stage 1: native EPICS base + patched pvxs (for CLI tools) ───────────────
+FROM ubuntu:24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    build-essential git cmake ninja-build \
+    libreadline-dev libevent-dev perl wget curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# EPICS base 7.0.9
+RUN git clone --branch R7.0.9 --depth 1 --recursive \
+    https://github.com/epics-base/epics-base.git /opt/epics-src
+WORKDIR /opt/epics-src
+RUN make -j$(nproc) INSTALL_LOCATION=/opt/local \
+    && make install INSTALL_LOCATION=/opt/local
+
+ENV EPICS_BASE=/opt/local
+RUN /opt/epics-src/startup/EpicsHostArch > /etc/epics_host_arch
+
+# pvxs 1.5.2 (native build for CLI tools: pvxget, pvxmonitor, etc.)
+RUN git clone --branch 1.5.2 --depth 1 \
+    https://github.com/epics-base/pvxs.git /opt/pvxs-src
+WORKDIR /opt/pvxs-src
+RUN git submodule update --init
+
+# Apply cacheClean() fix inline
+RUN perl -0777 -i -pe \
+    's{([ \t]+else if\(action!=Context::Clean \|\| cur->second\.use_count\(\)<=1\) \{)\n[ \t]+cur->second->garbage = true;\n\n([ \t]+if\(action==Context::Clean && !cur->second->garbage\) \{)\n([ \t]+// mark for next sweep)}\
+{$1\n$2\n$3\n                cur->second->garbage = true;}' \
+    src/client.cpp \
+    && echo "=== cacheClean patch applied ===" \
+    && grep -n "garbage" src/client.cpp | head -10
+
+RUN arch=$(cat /etc/epics_host_arch) \
+    && echo "EPICS_BASE=/opt/local"        > configure/RELEASE.local \
+    && echo "EPICS_HOST_ARCH=$arch"       >> configure/RELEASE.local \
+    && echo "INSTALL_LOCATION=/opt/local" >> configure/RELEASE.local \
+    && EPICS_HOST_ARCH=$arch make -j$(nproc) \
+    && EPICS_HOST_ARCH=$arch make install \
+    && arch2=$(cat /etc/epics_host_arch) \
+    && if ! ls /opt/local/lib/${arch2}/libpvxs* >/dev/null 2>&1; then \
+           mkdir -p /opt/local/lib/${arch2} && cp -a /opt/pvxs-src/lib/${arch2}/. /opt/local/lib/${arch2}/; \
+       fi \
+    && if ! ls /opt/local/include/pvxs/version.h >/dev/null 2>&1; then \
+           mkdir -p /opt/local/include && cp -a /opt/pvxs-src/include/. /opt/local/include/; \
+       fi
+
+# pvxs CLI tools
+RUN arch=$(cat /etc/epics_host_arch) \
+    && EPICS_HOST_ARCH=$arch make -j$(nproc) -C /opt/pvxs-src/tools \
+    && EPICS_HOST_ARCH=$arch make install -C /opt/pvxs-src/tools \
+    && EPICS_HOST_ARCH=$arch make -j$(nproc) -C /opt/pvxs-src/qsrv \
+    && EPICS_HOST_ARCH=$arch make install -C /opt/pvxs-src/qsrv \
+    && cp -a /opt/pvxs-src/bin/${arch}/. /opt/local/bin/${arch}/ \
+    && mkdir -p /opt/local/dbd \
+    && find /opt/pvxs-src -name '*.dbd' -exec cp {} /opt/local/dbd/ \;
+
+# ── Stage 2: Python — patched pvxslibs from PyPI sdist + p4p ────────────────
+FROM ubuntu:24.04 AS pybuilder
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    build-essential git cmake \
+    libreadline-dev libevent-dev \
+    python3 python3-pip python3-dev python3-setuptools \
+    ca-certificates pkg-config perl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build deps for pvxslibs and p4p
+RUN pip3 install epicscorelibs setuptools_dso cython nose2 --break-system-packages
+
+# Download and extract pvxslibs source
+RUN pip3 download pvxslibs --no-binary pvxslibs -d /tmp/pvxslibs-dl \
+    && cd /tmp/pvxslibs-dl \
+    && tar xzf pvxslibs-*.tar.gz
+
+# Find and patch cacheClean() in pvxslibs source
+RUN PVXS_CLIENT=$(find /tmp/pvxslibs-dl -name 'client.cpp' | grep pvxs | head -1) \
+    && echo "Patching: $PVXS_CLIENT" \
+    && perl -0777 -i -pe \
+       's{([ \t]+else if\(action!=Context::Clean \|\| cur->second\.use_count\(\)<=1\) \{)\n[ \t]+cur->second->garbage = true;\n\n([ \t]+if\(action==Context::Clean && !cur->second->garbage\) \{)\n([ \t]+// mark for next sweep)}\
+{$1\n$2\n$3\n                cur->second->garbage = true;}' \
+       "$PVXS_CLIENT" \
+    && echo "=== Patch applied ===" \
+    && grep -n "garbage" "$PVXS_CLIENT" | head -10 \
+    && mkdir -p /opt/pvxslibs-patched-src \
+    && cp "$PVXS_CLIENT" /opt/pvxslibs-patched-src/client.cpp
+
+# Build pvxslibs from patched source
+RUN cd /tmp/pvxslibs-dl/pvxslibs-*/ \
+    && pip3 install . --break-system-packages --no-build-isolation \
+    && echo "=== pvxslibs built from patched source ==="
+
+# Build p4p from PyPI — links against our patched pvxslibs (ABI consistent)
+RUN pip3 install p4p --no-binary p4p --break-system-packages
+
+# Smoke test
+RUN python3 -c "import p4p; print('p4p OK, version:', getattr(p4p, '__version__', 'unknown'))"
+
+# ── Stage 3: minimal runtime ─────────────────────────────────────────────────
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    libreadline8 libevent-core-2.1-7t64 libevent-pthreads-2.1-7t64 \
+    python3 valgrind perl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/local /opt/local
+COPY --from=builder /etc/epics_host_arch /etc/epics_host_arch
+COPY --from=pybuilder /usr /usr
+COPY --from=pybuilder /opt/pvxslibs-patched-src /opt/pvxslibs-patched-src
+
+# Only add /opt/local/bin to PATH for CLI tools (pvxget, etc.).
+# Do NOT add /opt/local/lib to LD_LIBRARY_PATH or ldconfig —
+# native EPICS 7.0.9 libpvxs would conflict with pvxslibs' epicscorelibs-based copy.
+# CLI tools have RPATH baked in; Python uses pvxslibs' bundled libs.
+ENV PATH="/opt/local/bin/linux-aarch64:/opt/local/bin/linux-x86_64:${PATH}"
+
+# Final smoke test
+RUN python3 -c "import p4p; print('p4p OK')"
+
+WORKDIR /test
+
+ENTRYPOINT ["python3", "/test/test_pva_get_leak.py"]
+CMD ["--gets", "500", "--cycles", "50", "--soak", "120"]

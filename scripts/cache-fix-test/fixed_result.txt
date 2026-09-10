@@ -1,0 +1,166 @@
+Starting in-process PVA server...
+Server up, serving 500 PVs.
+Settings: gets=5000  cycles=30  soak=60s
+
+  Running repeated_gets...
+  [repeated_gets] starting — 5000 iters × 500 PVs
+  [repeated_gets]     250/5000 (5%)  elapsed=26s  rss=51.4 MB  delta=+0.04 MB
+  [repeated_gets]     500/5000 (10%)  elapsed=51s  rss=51.4 MB  delta=+0.04 MB
+  [repeated_gets]     750/5000 (15%)  elapsed=77s  rss=51.4 MB  delta=+0.05 MB
+  [repeated_gets]    1000/5000 (20%)  elapsed=102s  rss=51.4 MB  delta=+0.05 MB
+  [repeated_gets]    1250/5000 (25%)  elapsed=128s  rss=51.4 MB  delta=+0.05 MB
+  [repeated_gets]    1500/5000 (30%)  elapsed=153s  rss=51.4 MB  delta=+0.05 MB
+  [repeated_gets]    1750/5000 (35%)  elapsed=178s  rss=51.4 MB  delta=+0.05 MB
+  [repeated_gets]    2000/5000 (40%)  elapsed=203s  rss=51.4 MB  delta=+0.05 MB
+  [repeated_gets]    2250/5000 (45%)  elapsed=229s  rss=51.4 MB  delta=+0.05 MB
+  [repeated_gets]    2500/5000 (50%)  elapsed=254s  rss=51.4 MB  delta=+0.05 MB
+  [repeated_gets]    2750/5000 (55%)  elapsed=280s  rss=51.4 MB  delta=+0.05 MB
+  [repeated_gets]    3000/5000 (60%)  elapsed=305s  rss=51.4 MB  delta=+0.05 MB
+  [repeated_gets]    3250/5000 (65%)  elapsed=331s  rss=51.4 MB  delta=+0.05 MB
+  [repeated_gets]    3500/5000 (70%)  elapsed=356s  rss=51.4 MB  delta=+0.06 MB
+  [repeated_gets]    3750/5000 (75%)  elapsed=381s  rss=51.4 MB  delta=+0.06 MB
+  [repeated_gets]    4000/5000 (80%)  elapsed=407s  rss=51.4 MB  delta=+0.06 MB
+  [repeated_gets]    4250/5000 (85%)  elapsed=432s  rss=51.4 MB  delta=+0.06 MB
+  [repeated_gets]    4500/5000 (90%)  elapsed=458s  rss=51.4 MB  delta=+0.06 MB
+  [repeated_gets]    4750/5000 (95%)  elapsed=483s  rss=51.4 MB  delta=+0.06 MB
+  [PASS] repeated_gets
+         RSS start  : 51.3 MB
+         RSS end    : 51.4 MB
+         RSS delta  : +0.1 MB
+         RSS peak   : 51.4 MB
+         threshold  : 20.0 MB
+         [----------------------------------------] 0.1/30.0 MB
+         RSS series : 51.3  51.3  51.3  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4  51.4
+
+  Running context_open_close...
+  [context_open_close] starting — 30 cycles × 500 PVs
+  [context_open_close]     1/30 (3%)  elapsed=11s  rss=51.7 MB  delta=+0.26 MB
+  [context_open_close]     2/30 (7%)  elapsed=17s  rss=51.7 MB  delta=+0.26 MB
+  [context_open_close]     3/30 (10%)  elapsed=23s  rss=51.7 MB  delta=+0.26 MB
+  [context_open_close]     4/30 (13%)  elapsed=29s  rss=51.7 MB  delta=+0.26 MB
+  [context_open_close]     5/30 (17%)  elapsed=34s  rss=51.7 MB  delta=+0.28 MB
+  [context_open_close]     6/30 (20%)  elapsed=40s  rss=51.7 MB  delta=+0.28 MB
+  [context_open_close]     7/30 (23%)  elapsed=46s  rss=51.7 MB  delta=+0.28 MB
+  [context_open_close]     8/30 (27%)  elapsed=51s  rss=51.7 MB  delta=+0.28 MB
+  [context_open_close]     9/30 (30%)  elapsed=57s  rss=51.7 MB  delta=+0.28 MB
+  [context_open_close]    10/30 (33%)  elapsed=62s  rss=51.7 MB  delta=+0.31 MB
+  [context_open_close]    11/30 (37%)  elapsed=68s  rss=51.7 MB  delta=+0.31 MB
+  [context_open_close]    12/30 (40%)  elapsed=74s  rss=51.7 MB  delta=+0.31 MB
+  [context_open_close]    13/30 (43%)  elapsed=80s  rss=51.7 MB  delta=+0.31 MB
+  [context_open_close]    14/30 (47%)  elapsed=86s  rss=51.7 MB  delta=+0.31 MB
+  [context_open_close]    15/30 (50%)  elapsed=91s  rss=51.7 MB  delta=+0.30 MB
+  [context_open_close]    16/30 (53%)  elapsed=97s  rss=51.7 MB  delta=+0.30 MB
+  [context_open_close]    17/30 (57%)  elapsed=103s  rss=51.7 MB  delta=+0.30 MB
+  [context_open_close]    18/30 (60%)  elapsed=109s  rss=51.7 MB  delta=+0.30 MB
+  [context_open_close]    19/30 (63%)  elapsed=115s  rss=51.7 MB  delta=+0.30 MB
+  [context_open_close]    20/30 (67%)  elapsed=120s  rss=51.7 MB  delta=+0.30 MB
+  [context_open_close]    21/30 (70%)  elapsed=126s  rss=51.7 MB  delta=+0.30 MB
+  [context_open_close]    22/30 (73%)  elapsed=132s  rss=51.7 MB  delta=+0.30 MB
+  [context_open_close]    23/30 (77%)  elapsed=138s  rss=51.7 MB  delta=+0.30 MB
+  [context_open_close]    24/30 (80%)  elapsed=144s  rss=51.7 MB  delta=+0.30 MB
+  [context_open_close]    25/30 (83%)  elapsed=149s  rss=51.7 MB  delta=+0.31 MB
+  [context_open_close]    26/30 (87%)  elapsed=155s  rss=51.7 MB  delta=+0.31 MB
+  [context_open_close]    27/30 (90%)  elapsed=161s  rss=51.7 MB  delta=+0.31 MB
+  [context_open_close]    28/30 (93%)  elapsed=167s  rss=51.7 MB  delta=+0.31 MB
+  [context_open_close]    29/30 (97%)  elapsed=173s  rss=51.7 MB  delta=+0.31 MB
+  [PASS] context_open_close
+         RSS start  : 51.4 MB
+         RSS end    : 51.7 MB
+         RSS delta  : +0.3 MB
+         RSS peak   : 51.7 MB
+         threshold  : 50.0 MB
+         [----------------------------------------] 0.3/75.0 MB
+         RSS series : 51.4  51.7  51.7  51.7  51.7  51.7  51.7  51.7
+
+  Running nonexistent_pv...
+  [PASS] nonexistent_pv_errors
+         RSS start  : 51.7 MB
+         RSS end    : 51.7 MB
+         RSS delta  : +0.0 MB
+         threshold  : 5.0 MB
+         [----------------------------------------] 0.0/7.5 MB
+         errors     : 10
+
+  Running context_without_close...
+  [context_without_close] starting — 30 cycles × 500 PVs
+  [context_without_close]     1/30 (3%)  elapsed=11s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]     2/30 (7%)  elapsed=17s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]     3/30 (10%)  elapsed=23s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]     4/30 (13%)  elapsed=28s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]     5/30 (17%)  elapsed=34s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]     6/30 (20%)  elapsed=39s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]     7/30 (23%)  elapsed=45s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]     8/30 (27%)  elapsed=50s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]     9/30 (30%)  elapsed=56s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    10/30 (33%)  elapsed=62s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    11/30 (37%)  elapsed=67s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    12/30 (40%)  elapsed=73s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    13/30 (43%)  elapsed=78s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    14/30 (47%)  elapsed=84s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    15/30 (50%)  elapsed=89s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    16/30 (53%)  elapsed=95s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    17/30 (57%)  elapsed=100s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    18/30 (60%)  elapsed=106s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    19/30 (63%)  elapsed=112s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    20/30 (67%)  elapsed=118s  rss=51.7 MB  delta=+0.01 MB
+  [context_without_close]    21/30 (70%)  elapsed=123s  rss=51.7 MB  delta=+0.01 MB
+  [context_without_close]    22/30 (73%)  elapsed=129s  rss=51.7 MB  delta=+0.01 MB
+  [context_without_close]    23/30 (77%)  elapsed=135s  rss=51.7 MB  delta=+0.01 MB
+  [context_without_close]    24/30 (80%)  elapsed=141s  rss=51.7 MB  delta=+0.01 MB
+  [context_without_close]    25/30 (83%)  elapsed=147s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    26/30 (87%)  elapsed=152s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    27/30 (90%)  elapsed=158s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    28/30 (93%)  elapsed=164s  rss=51.7 MB  delta=+0.00 MB
+  [context_without_close]    29/30 (97%)  elapsed=170s  rss=51.7 MB  delta=+0.00 MB
+  [INFO] context_without_close
+         RSS start  : 51.7 MB
+         RSS end    : 51.7 MB
+         RSS delta  : +0.0 MB
+         RSS peak   : 51.7 MB
+         RSS series : 51.7  51.7  51.7  51.7  51.7  51.7  51.7  51.7
+         note       : xfail — expected to leak; documents the failure mode
+
+  Running soak (60s) — live RSS samples stream below...
+  [soak] starting — 60s, 500 PVs  rss0=51.7 MB  anon0=31.7 MB
+  [soak]     5.1s  rss=51.7 MB  anon=31.7 MB  iters=49  rss_delta=+0.00 MB  anon_delta=+0.00 MB
+  [soak]    10.2s  rss=51.7 MB  anon=31.7 MB  iters=100  rss_delta=+0.00 MB  anon_delta=+0.00 MB
+  [soak]    15.2s  rss=51.7 MB  anon=31.7 MB  iters=149  rss_delta=+0.00 MB  anon_delta=+0.00 MB
+  [soak]    20.3s  rss=51.7 MB  anon=31.7 MB  iters=200  rss_delta=+0.00 MB  anon_delta=+0.00 MB
+  [soak]    25.3s  rss=51.7 MB  anon=31.7 MB  iters=249  rss_delta=+0.00 MB  anon_delta=+0.00 MB
+  [soak]    30.4s  rss=51.7 MB  anon=31.7 MB  iters=299  rss_delta=+0.00 MB  anon_delta=+0.00 MB
+  [soak]    35.5s  rss=51.7 MB  anon=31.7 MB  iters=349  rss_delta=+0.00 MB  anon_delta=+0.00 MB
+  [soak]    40.5s  rss=51.7 MB  anon=31.7 MB  iters=399  rss_delta=+0.00 MB  anon_delta=+0.00 MB
+  [soak]    45.6s  rss=51.7 MB  anon=31.7 MB  iters=449  rss_delta=+0.00 MB  anon_delta=+0.00 MB
+  [soak]    50.6s  rss=51.7 MB  anon=31.7 MB  iters=499  rss_delta=+0.00 MB  anon_delta=+0.00 MB
+  [soak]    55.7s  rss=51.7 MB  anon=31.7 MB  iters=550  rss_delta=+0.00 MB  anon_delta=+0.00 MB
+  [PASS] soak
+         RSS start  : 51.7 MB
+         RSS end    : 51.7 MB
+         RSS delta  : +0.0 MB
+         RSS peak   : 51.7 MB
+         threshold  : 15.0 MB
+         [----------------------------------------] 0.0/22.5 MB
+         rss slope  : +0.0001 MB/s
+         anon start : 31.7 MB
+         anon end   : 31.7 MB
+         anon delta : +0.00 MB
+         anon slope : +0.0001 MB/s  ← KEY METRIC
+         iterations : 593
+         RSS timeline (elapsed_s → rss_mb):
+              0.0s  51.7 MB
+              5.1s  51.7 MB
+             10.2s  51.7 MB
+             15.2s  51.7 MB
+             20.3s  51.7 MB
+             25.3s  51.7 MB
+             30.4s  51.7 MB
+             35.5s  51.7 MB
+             40.5s  51.7 MB
+             45.6s  51.7 MB
+             50.6s  51.7 MB
+             55.7s  51.7 MB
+             60.1s  51.7 MB
+
+----------------------------------------------------------------------
+  PASSED: 4  FAILED: 0  INFO: 1
+======================================================================

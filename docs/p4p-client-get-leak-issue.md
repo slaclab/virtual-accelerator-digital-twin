@@ -163,12 +163,71 @@ have not deployed it as our workaround because monitors are unreliable through a
 socat proxy in front of our IOCs (that is a proxy issue, not a p4p one). Anyone whose
 monitors work should prefer them.
 
+### Root cause (found 2026-09-09)
+
+The bug is in **pvxs** (`src/client.cpp`, `ContextImpl::cacheClean()`), not p4p.
+
+`ContextImpl` maintains a strong-reference channel cache (`chanByName`). A periodic
+timer (every 10 s) calls `cacheClean()` to garbage-collect unused channels via a
+two-phase mark/sweep. The implementation contains a logic bug that makes the mark phase
+dead code:
+
+```cpp
+// pvxs src/client.cpp ~line 1350 (v1.5.2)
+else if(action!=Context::Clean || cur->second.use_count()<=1) {
+    cur->second->garbage = true;           // BUG: always sets garbage = true
+
+    if(action==Context::Clean && !cur->second->garbage) {  // DEAD CODE: always false
+        // mark for next sweep — never executes
+```
+
+Line 1351 sets `garbage = true`. Line 1353 tests `!garbage` — always false. The
+"mark for next sweep" branch never runs. Every cleanup tick either sweeps immediately
+(if `use_count() <= 1`) or does nothing (if `use_count() > 1`).
+
+Under a high-frequency `get()` workload across N channels, each in-flight `GPROp`
+holds a `shared_ptr<Channel>`, keeping `use_count() >= 2` during cleanup ticks. The
+broken mark phase means these channels are never marked and therefore never swept on
+subsequent ticks — they accumulate in `chanByName` indefinitely.
+
+This explains all observations:
+- **Single-channel flat**: 1 cache entry, cleanup always sees `use_count()==1`
+- **180-channel leak**: N entries, many have `use_count()>1` during cleanup ticks
+- **`monitor()` flat**: subscriptions hold channels alive intentionally; the broken GC
+  doesn't matter because the channels are *meant* to stay alive
+- **Non-reclaimable native memory**: channels hold Connection objects, socket state,
+  type registries — C++ heap, invisible to Python and `malloc_trim`
+
+**Fix** (one logical change, `src/client.cpp`):
+
+```cpp
+// BEFORE (broken)
+else if(action!=Context::Clean || cur->second.use_count()<=1) {
+    cur->second->garbage = true;
+    if(action==Context::Clean && !cur->second->garbage) {
+
+// AFTER (fixed)
+else if(action!=Context::Clean || cur->second.use_count()<=1) {
+    if(action==Context::Clean && !cur->second->garbage) {
+        cur->second->garbage = true;   // moved here — mark phase now works
+```
+
+See `docs/pvxs-cache-clean-bug.md` for the full technical analysis and proposed fix.
+
+The fix has been applied in `scripts/pvxs-fix-test/Dockerfile.fixed`. Short-duration
+tests (< 5 min) do not show a measurable difference because the 10 s cache cleaner
+timer fires too rarely to accumulate divergence. The production signature (hours,
+~1.6 MB/h at 257 gets/s, 180 PVs) is the correct benchmark.
+
 ### Question
 
-Given the shape — leak triggered by channel count, not by call rate, not present in
+~~Given the shape — leak triggered by channel count, not by call rate, not present in
 `monitor()` — is there a shared client-side get-request or channel-cache path that
-retains something per-channel-per-`get`? Any pointers to where in the client code to
-look would help us produce a fix rather than a workaround.
+retains something per-channel-per-`get`?~~
+
+**Answered**: the leak path is `chanByName` channel cache in pvxs `ContextImpl`, with
+a broken mark/sweep GC in `cacheClean()`. File against
+https://github.com/epics-base/pvxs.
 
 ---
 

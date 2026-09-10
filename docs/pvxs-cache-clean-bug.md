@@ -207,10 +207,34 @@ Dead `weak_ptr` entries in `chanByCID` are checked lazily (on lookup). The map i
 
 ### Test Suite
 
-The file `tests/test_pva_get_leak.py` exercises the p4p/pvxs get path in isolation (no docker, no bmad) with:
-- 50 in-process PVs served via `p4p.server.thread.SharedPV`
+The file `scripts/pvxs-fix-test/test_pva_get_leak.py` exercises the p4p/pvxs get path in isolation (no docker, no bmad) with:
+- 500 in-process PVs served via `p4p.server.thread.SharedPV`
 - Repeated gets, context open/close cycles, soak test with RSS timeline
-- Valgrind memcheck integration via `scripts/run_pva_leak_valgrind.sh`
+- Valgrind memcheck integration via `scripts/pvxs-fix-test/run_test.sh`
+
+### Docker Test Images
+
+Two Docker images allow direct A/B comparison:
+
+- **`Dockerfile.stock`** — stock p4p from PyPI, unpatched pvxslibs (baseline)
+- **`Dockerfile.fixed`** — pvxslibs built from PyPI sdist with cacheClean patch applied, p4p built from source against patched pvxslibs (ABI-consistent via epicscorelibs)
+
+Build and run:
+```bash
+cd scripts/pvxs-fix-test
+docker build -f Dockerfile.stock -t pvxs-test-stock .
+docker build -f Dockerfile.fixed -t pvxs-test-fixed .
+docker run --rm -v "$(pwd)":/test pvxs-test-stock --gets 5000 --cycles 30 --soak 60 --report /test/stock_result.txt
+docker run --rm -v "$(pwd)":/test pvxs-test-fixed --gets 5000 --cycles 30 --soak 60 --report /test/fixed_result.txt
+```
+
+Patch verification inside fixed image:
+```bash
+# Confirm patched source was used
+docker run --rm --entrypoint bash pvxs-test-fixed -c "grep -n 'garbage' /opt/pvxslibs-patched-src/client.cpp"
+# Confirm binary differs from stock
+docker run --rm --entrypoint python3 -v "$(pwd)":/test pvxs-test-fixed /test/verify_patch.py
+```
 
 ### Valgrind Results
 
@@ -219,15 +243,53 @@ Valgrind memcheck found **zero definitely-lost or indirectly-lost bytes** from p
 - 2,495 bytes: Python `unicode_join` during module import
 - 169,228 bytes: Python `unicode_join` during module import
 
-### RSS Measurements (Without Valgrind)
+### RSS Measurements — Stock vs Fixed (2026-09-09)
 
-| Test | Iterations | RSS delta |
+Test parameters: 5000 get iterations × 500 PVs = 2.5M get() calls, 30 context cycles, 60s soak.
+
+#### repeated_gets (2.5M gets, single context)
+
+| Metric | Stock (unpatched) | Fixed (patched) |
 |---|---|---|
-| repeated_gets (50 PVs, 50K iters) | 2.5M get calls | +0.1 MB |
-| soak (50 PVs, 5 min) | 135K get calls | +0.0 MB |
-| context_open_close (500 cycles) | 25K get calls | +5.9 MB (glibc arena fragmentation) |
+| RSS start | 45.2 MB | 51.3 MB |
+| RSS end | 66.5 MB | 51.4 MB |
+| **RSS delta** | **+21.3 MB ❌ FAIL** | **+0.1 MB ✅ PASS** |
+| Growth pattern | Linear (+4 MB / 1000 iters) | Flat |
 
-The in-process test doesn't trigger the bug because the test creates short-lived contexts or runs all gets synchronously on a single context with low concurrency. The bug manifests under production conditions where the event loop has backlog pressure from the bmad model computation.
+Stock shows textbook linear leak — every 250 iterations adds ~1 MB. Fixed is dead flat. This directly demonstrates that the cacheClean fix eliminates channel accumulation in `chanByName`.
+
+#### context_open_close (30 cycles × 500 PVs)
+
+| Metric | Stock | Fixed |
+|---|---|---|
+| RSS delta | +0.0 MB ✅ | +0.3 MB ✅ |
+
+Both pass. Context close drops `use_count()` to 1, so even the broken GC sweeps immediately. Consistent with root cause analysis.
+
+#### soak (60s continuous gets)
+
+| Metric | Stock | Fixed |
+|---|---|---|
+| RSS at soak start | 66.5 MB (inflated by prior leak) | 51.7 MB |
+| Anon at soak start | 48.3 MB | 31.7 MB |
+| Anon delta | +0.00 MB | +0.00 MB |
+| Anon slope | +0.0001 MB/s | +0.0001 MB/s |
+| Iterations (60s) | 253 | 593 |
+
+Stock soak starts at **48.3 MB anon** — 16.6 MB higher than fixed's 31.7 MB due to memory leaked in repeated_gets. Stock also ran **2.3× fewer iterations** in the same 60s (253 vs 593), indicating the bloated channel cache degrades get() throughput.
+
+#### Summary
+
+| Test | Stock | Fixed |
+|---|---|---|
+| repeated_gets | **FAIL** (+21.3 MB) | **PASS** (+0.1 MB) |
+| context_open_close | PASS (+0.0 MB) | PASS (+0.3 MB) |
+| nonexistent_pv | PASS (+0.0 MB) | PASS (+0.0 MB) |
+| context_without_close | INFO (+0.0 MB) | INFO (+0.0 MB) |
+| soak | PASS (+0.0 MB) | PASS (+0.0 MB) |
+| **Totals** | **3 PASS, 1 FAIL, 1 INFO** | **4 PASS, 0 FAIL, 1 INFO** |
+
+For longer-duration soak comparison, use `--soak 1800` or higher — production leak rate is ~1.6 MB/h at 257 gets/s across 180 PVs, requiring hours to show measurable divergence in the soak metric alone.
 
 ---
 

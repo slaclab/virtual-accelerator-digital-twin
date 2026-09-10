@@ -1,0 +1,30 @@
+# ---------------------------------------------------------------------------
+# Dockerfile.stock — stock p4p from PyPI, no patches. Baseline for leak comparison.
+#
+# Build:
+#   cd scripts/pvxs-fix-test
+#   docker build -f Dockerfile.stock -t pvxs-test-stock .
+#
+# Run:
+#   docker run --rm -v "$(pwd)":/test pvxs-test-stock \
+#       --gets 5000 --cycles 100 --soak 300 --report /test/stock_result.txt
+#
+# Shell:
+#   docker run --rm -it --entrypoint bash -v "$(pwd)":/test pvxs-test-stock
+# ---------------------------------------------------------------------------
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip valgrind \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install p4p --break-system-packages
+
+RUN python3 -c "import p4p; print('p4p OK, version:', getattr(p4p, '__version__', 'unknown'))"
+
+WORKDIR /test
+
+ENTRYPOINT ["python3", "/test/test_pva_get_leak.py"]
+CMD ["--gets", "500", "--cycles", "50", "--soak", "120"]
