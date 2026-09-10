@@ -11,9 +11,15 @@
 ## Summary
 
 When a p4p client calls `ctx.get(pv)`, pvxs creates a **Channel** object for that PV and
-stores it in a cache (`chanByName`). The Channel owns a network **Connection**, a type
-cache (`rxRegistry`), and socket state — it is expensive to build. The cache exists so
-repeated gets to the same PV **reuse** the same Channel instead of rebuilding it.
+stores it in a cache (`chanByName`). Building a Channel is expensive: it runs a
+search/CREATE_CHANNEL handshake with the server, gets a server-side channel ID (SID)
+assigned, and registers itself in several bookkeeping maps. The cache exists so repeated
+gets to the same PV **reuse** the same Channel instead of rebuilding it.
+
+(The **TCP Connection** and its type cache `rxRegistry` are *shared* per server via a
+`weak_ptr` map — all PVs on the same IOC share one socket. Destroying a Channel does NOT
+tear down the socket, so the churn is in the per-Channel protocol state + queued work, not
+in the TCP layer.)
 
 A background timer (`cacheClean()`) fires every 10 seconds to garbage-collect Channels
 nobody is using. It is designed as a two-phase mark/sweep:
@@ -77,13 +83,24 @@ tick 2:       (already gone)                   still used → stays
 result:       constant alloc/free thrash       Channel stays warm, reused
 ```
 
-Two things drive RSS up in the broken case:
+Three things drive RSS up in the broken case:
 
-1. **Allocation outpaces async free.** New Channels/Connections/registries are allocated
-   synchronously on the polling thread; their destruction is queued on the event loop.
-   Fast enough polling → the free queue never catches up → live allocation grows.
-2. **`rxRegistry` rebuild.** Every rebuilt Connection re-negotiates and re-caches type
-   descriptions from the server, re-allocating heap a reused Connection would have kept.
+1. **Dead bookkeeping entries accumulate (verified).** Each Channel::build() inserts into
+   `chanByCID` (weak_ptr map, clientimpl.h:312) and `searchBuckets` (weak_ptr lists,
+   clientimpl.h:308). When `~Channel` runs via `disconnect(nullptr)`, these entries are
+   **never erased** — the weak_ptr expires but the map tree node (~48-64 bytes) stays.
+   Under churn with 500 PVs, each sweep+rebuild cycle adds ~500 dead entries to each
+   structure. Over hours, thousands of dead entries → megabytes of leaked nodes.
+
+2. **Work queue backlog holds shared_ptrs.** All pvxs client work runs on **one** event-loop
+   worker thread, fed by a single **unbounded** queue (`std::deque<Work> actions`,
+   evhelper.cpp:130). `_dispatch()` just does `emplace_back(...)` — no size limit, no
+   blocking, no drop. Every queued lambda captures `shared_ptr`s (channels, ops, buffers).
+   Growing backlog = growing live memory.
+
+3. **Churn overhead.** Each rebuild pays search + CREATE_CHANNEL handshake + SID assignment
+   + map registration. This work saturates the single worker thread, which explains the
+   2.3× throughput drop (253 vs 593 iterations/60s).
 
 ### The proof: it's churn
 
@@ -101,22 +118,64 @@ broken-GC effect:    ~no churn → NO LEAK         constant churn → LEAK
                                                  (~1.6 MB/h at 180 PVs)
 ```
 
+### Where the memory actually accumulates (verified in source)
+
+The churn creates dead Channel objects. When `cacheClean` sweeps with `action == Clean`
+(client.cpp:1362-1369):
+
+```cpp
+auto trash(std::move(cur->second));   // shared_ptr moved out of map
+chanByName.erase(cur);                // map entry removed
+// action == Clean, NOT Disconnect → disconnect(trash) is NOT called here
+// trash drops at scope end → ~Channel() → disconnect(nullptr)
+```
+
+`~Channel` calls `disconnect(nullptr)` (client.cpp:117). The `nullptr` path
+(client.cpp:206-207) does **nothing** — no `CMD_DESTROY_CHANNEL`, no SID/CID map cleanup:
+
+```cpp
+if(!self) { // in ~Channel
+    // searchBuckets cleaned in tickSearch()
+}
+```
+
+But `Channel::build()` (client.cpp:375) inserted entries into two other maps that are
+**never cleaned up** by this path:
+
+1. **`chanByCID`** — `std::map<uint32_t, weak_ptr<Channel>>` (clientimpl.h:312). Each new
+   Channel inserts `chanByCID[chan->cid] = chan` (client.cpp:375). When the Channel dies,
+   the `weak_ptr` expires but **the map entry (tree node) is never erased**. It's only
+   skipped lazily during CID allocation (client.cpp:370):
+   ```cpp
+   while(context->chanByCID.find(context->nextCID)!=context->chanByCID.end())
+       context->nextCID++;
+   ```
+   Dead entries pile up. Each `std::map` tree node is ~48-64 bytes.
+
+2. **`searchBuckets`** — `vector<list<weak_ptr<Channel>>>` (clientimpl.h:308). Each new
+   Channel pushes into `initialSearchBucket` (client.cpp:379). `tickSearch` only `.lock()`
+   checks entries when their bucket rotates (client.cpp:1108-1111). Dead `weak_ptr`s sit in
+   the lists until that bucket fires. Under fast churn, lists grow faster than they drain.
+
+Under the broken GC with 500 PVs, each 10s sweep+rebuild cycle adds up to **500 dead
+`chanByCID` entries + 500 dead `searchBuckets` entries** that are never proactively
+cleaned. Over 2.5M gets with periodic sweeps, that's thousands of dead entries → megabytes
+of leaked tree nodes and list nodes.
+
+**With the fix**: no churn → Channels stay warm → no dead entries → maps stay bounded.
+
 ### The fix
 
-Move `garbage = true` **inside** the mark branch (see [Proposed Fix](#proposed-fix)). This
-restores the grace period: an idle Channel is marked on one tick and swept only if it is
-*still* idle on the next. A PV polled again in between keeps its Channel — no rebuild, no
-churn, RSS flat. Confirmed by the A/B test: **+21.3 MB stock vs +0.1 MB fixed** over 2.5M
-gets.
+**Primary fix** (cacheClean mark — see [Proposed Fix](#proposed-fix)): move `garbage = true`
+inside the mark branch. Restores the grace period: idle Channel is marked on one tick,
+swept only if *still* idle on the next. A PV polled again in between keeps its Channel —
+no rebuild, no churn, no dead map entries. Confirmed: **+21.3 MB stock vs +0.1 MB fixed**
+over 2.5M gets.
 
-> **Note on an earlier hypothesis.** A prior version of this report speculated the leak
-> came from *multiple Channel instances per PV lingering via retained `shared_ptr`s*. That
-> is not supported: when a map entry is erased or replaced its `shared_ptr` drops, and
-> once the pending GPROp finishes the Channel is freed. The verified mechanism is **churn**
-> (constant sweep + rebuild), evidenced by the 2.3× throughput drop — not passive object
-> accumulation. Exact per-object heap growth under churn is not fully characterized; see
-> [Recommendation](#recommendation) for the `chanByName.size()` gauge and heap-profiling
-> follow-ups.
+**Secondary fix** (chanByCID/searchBuckets compaction — see [Additional Contributing
+Factors §5](#5-chanbycid-and-searchbuckets-accumulate-dead-entries-under-churn)): even with
+the primary fix, these maps should be compacted to defend against any residual churn from
+connection drops or other lifecycle events.
 
 ---
 
@@ -231,22 +290,47 @@ The two-phase grace period never functions. Channels that are briefly unused bet
 
 ## Impact on Long-Running Workloads
 
-In the virtual-accelerator-digital-twin, the `take_snapshot()` function calls `pvua_context.get(pv)` for each PV in a tight loop:
+In the virtual-accelerator-digital-twin, `take_snapshot()` calls `ctx.get(pv)` for each
+PV in a tight loop (~180 PVs at ~257 gets/s). Each `ctx.get()` creates a `GPROp`
+(clientget.cpp) that holds a `shared_ptr<Channel>`. The GPROp destructor is dispatched
+**asynchronously** to the pvxs event loop via `loop.tryInvoke()` (clientget.cpp:597).
 
-```python
-# lume_pva/runner.py (patched), take_snapshot()
-for pv in self.snapshot_pvs:
-    new_values[self.pv_to_var[pv]] = {
-        "value": self.pvua_context.get(pv),
-        "ts": time.time(),
-    }
-```
+Because the mark phase is dead code, every Channel caught idle at a 10s tick is swept
+immediately. The next get to that PV must rebuild the Channel from scratch (search +
+CREATE_CHANNEL handshake + SID assignment + map registration). This is the **churn**
+mechanism — not passive accumulation, but constant destroy → rebuild.
 
-Each `ctx.get()` creates a `GPROp` (in `clientget.cpp`) that holds a `shared_ptr<Channel>`. While the operation is in-flight, `Channel::use_count() >= 2` (one from `chanByName`, one from `GPROp::chan`).
+### Why churn causes RSS growth
 
-The `GPROp` destruction is asynchronous — it's dispatched to the pvxs event loop via `loop.tryInvoke()` in the custom deleter (clientget.cpp ~645–656). Under high-frequency get() calls, the event loop may have a backlog of pending GPROp destructions, keeping `use_count() > 1` across multiple `cacheClean` ticks.
+All pvxs client work runs on **one** event-loop worker thread, fed by a single unbounded
+queue (`std::deque<Work> actions`, evhelper.cpp:130). `_dispatch()` (evhelper.cpp:297-316)
+just does `actions.emplace_back(...)` — **no size limit, no blocking, no drop**.
 
-Because the mark phase is dead code, these channels are never marked as `garbage` — they survive indefinitely in the cache. Over days of operation, the cache accumulates stale entries that hold Connection objects, type registries, and other C++ state, contributing to steady RSS growth.
+Under fast polling with the broken GC:
+1. Python thread enqueues get+build work (synchronous from Python's perspective)
+2. Worker runs build (Channel::build, search, connect, createOperations)
+3. Timer fires → sweep idle channels (inline, on same worker)
+4. Python enqueues more gets → worker must rebuild what was just swept
+5. GPROp destructors queue up behind the rebuild work
+
+Every queued lambda captures `shared_ptr`s (channels, ops, buffers). Growing backlog =
+growing live memory. The queue has no backpressure, so the backlog is unbounded.
+
+**When a Channel's `shared_ptr` finally drops** (verified in pvxs 1.5.2 source):
+- `~Channel` → `disconnect()` (client.cpp:117,151) sends `CMD_DESTROY_CHANNEL`, erases
+  the channel from the connection's SID/CID maps, and re-queues it for search
+- The **TCP socket is NOT closed**: the Connection (socket + `rxRegistry`) is *shared per
+  server* via `connByAddr` weak_ptr (clientconn.cpp:51-53). All PVs on one IOC share one
+  socket; real socket teardown (`~Connection`, clientconn.cpp:180) runs only when the last
+  channel ref drops
+- So the churn cost per cycle is: Channel C++ object alloc/free + search/connect protocol
+  + map bookkeeping + queued lambdas holding `shared_ptr`s
+
+### Supporting evidence
+
+The A/B test shows stock running **253 iterations in 60s** vs fixed's **593** — 2.3×
+slower. Passive accumulation would not affect throughput. The slowdown directly reflects
+the per-get Channel rebuild cost under churn.
 
 ---
 
@@ -311,7 +395,138 @@ Each `Connection` has an `rxRegistry` (type description cache) that grows with e
 
 ### 3. `chanByCID` Map Uses `weak_ptr` But Is Never Compacted
 
-Dead `weak_ptr` entries in `chanByCID` are checked lazily (on lookup). The map itself never shrinks, so the map's internal tree nodes accumulate over time.
+Dead `weak_ptr` entries in `chanByCID` are checked lazily (on lookup, client.cpp:370). The
+map itself never shrinks. Under the broken GC's churn, each sweep+rebuild cycle adds dead
+entries. See §5 for the fix.
+
+### 4. Event Loop Work Queue Has No Backpressure
+
+The pvxs event loop `evbase::Pvt` (evhelper.cpp:116-261) feeds all client work through a
+single unbounded `std::deque<Work> actions` (evhelper.cpp:130). The dispatch path:
+
+```cpp
+// evhelper.cpp:297-316 — _dispatch() enqueues with no limit
+bool evbase::_dispatch(mfunction&& fn, bool dothrow) const
+{
+    bool empty;
+    {
+        Guard G(pvt->lock);
+        if(!pvt->running) { ... }
+        empty = pvt->actions.empty();
+        pvt->actions.emplace_back(std::move(fn), nullptr, nullptr);  // no cap check
+    }
+    // signal worker
+    ...
+}
+```
+
+There is no size limit, no blocking, no drop. Under the churn scenario, the Python
+polling thread can enqueue build+cancel+destroy lambdas faster than the single worker
+drains them. Every queued lambda captures `shared_ptr`s (Channels, GPROps, Connections),
+so a backlog directly grows live heap.
+
+**Proposed defense-in-depth fix** (complements the cacheClean mark fix):
+
+```cpp
+// evhelper.cpp — add a high-water mark to _dispatch()
+bool evbase::_dispatch(mfunction&& fn, bool dothrow) const
+{
+    bool empty;
+    {
+        Guard G(pvt->lock);
+        if(!pvt->running) { ... }
+
+        // backpressure: if queue exceeds high-water mark, block caller briefly
+        // to let the worker drain. Prevents unbounded memory growth under churn.
+        static constexpr size_t highWater = 4096;
+        while(pvt->actions.size() >= highWater) {
+            pvt->lock.unlock();
+            epicsThreadSleep(0.001);  // 1ms yield
+            pvt->lock.lock();
+            if(!pvt->running) { ... }
+        }
+
+        empty = pvt->actions.empty();
+        pvt->actions.emplace_back(std::move(fn), nullptr, nullptr);
+    }
+    ...
+}
+```
+
+This is a **secondary** fix — the primary fix (cacheClean mark) eliminates the churn that
+would saturate the queue. But the backpressure cap protects against any future scenario
+where enqueue outpaces drain.
+
+### 5. `chanByCID` and `searchBuckets` Accumulate Dead Entries Under Churn
+
+This is the **verified accumulation point** for the memory leak. When `cacheClean` sweeps
+a Channel with `action == Clean`, the Channel's `shared_ptr` drops and `~Channel` calls
+`disconnect(nullptr)` (client.cpp:117). The `nullptr` path (client.cpp:206-207) is a
+no-op:
+
+```cpp
+if(!self) { // in ~Channel
+    // searchBuckets cleaned in tickSearch()
+    // ← but chanByCID is NEVER cleaned
+}
+```
+
+But `Channel::build()` inserted entries into two maps when the Channel was created:
+
+```cpp
+// client.cpp:375 — inserted on every Channel::build()
+context->chanByCID[chan->cid] = chan;          // weak_ptr, never erased on destroy
+
+// client.cpp:379 — inserted on every Channel::build()
+context->initialSearchBucket.push_back(chan);  // weak_ptr, cleaned lazily
+```
+
+**`chanByCID`** (`std::map<uint32_t, weak_ptr<Channel>>`, clientimpl.h:312):
+- Entry inserted per `Channel::build()`, never erased when Channel dies
+- `weak_ptr` expires but tree node (~48-64 bytes) stays
+- CID allocation (client.cpp:370) skips dead entries but never erases them:
+  ```cpp
+  while(context->chanByCID.find(context->nextCID)!=context->chanByCID.end())
+      context->nextCID++;  // skips, but dead entries remain in map
+  ```
+- Under churn (500 PVs × sweeps every 10s): ~500 dead entries/cycle → thousands/hour
+
+**`searchBuckets`** (`vector<list<weak_ptr<Channel>>>`, clientimpl.h:308):
+- Dead `weak_ptr`s cleaned lazily in `tickSearch()` when their bucket rotates
+  (client.cpp:1108-1111: `auto chan = bucket.front().lock(); if(!chan) { pop; continue; }`)
+- Under fast churn, entries accumulate faster than buckets rotate (30 buckets × 10s = 5
+  min full cycle)
+
+**Proposed fix** — compact `chanByCID` during `cacheClean`:
+
+```cpp
+// client.cpp — add to cacheClean(), after the main while loop
+// Compact chanByCID: erase expired weak_ptr entries left by destroyed Channels
+{
+    auto next(chanByCID.begin()), end(chanByCID.end());
+    while(next != end) {
+        auto cur(next++);
+        if(cur->second.expired())
+            chanByCID.erase(cur);
+    }
+}
+```
+
+This runs every 10s on the same timer tick as the sweep, so it adds negligible overhead.
+It ensures dead CID entries don't accumulate.
+
+For `searchBuckets`, the existing lazy cleanup in `tickSearch` is adequate once the
+primary cacheClean fix eliminates the churn that overwhelms it. If needed, a similar
+compaction pass could be added to `tickSearch`:
+
+```cpp
+// client.cpp — add at the start of tickSearch() for the current bucket
+// Eagerly purge expired weak_ptrs before processing the bucket
+{
+    auto& bkt = (kind == SearchKind::initial) ? initialSearchBucket : searchBuckets[idx];
+    bkt.remove_if([](const std::weak_ptr<Channel>& wp) { return wp.expired(); });
+}
+```
 
 ---
 
@@ -409,6 +624,8 @@ For longer-duration soak comparison, use `--soak 1800` or higher — production 
 
 ## Recommendation
 
-1. **File issue** on https://github.com/epics-base/pvxs with the proposed fix
-2. **Workaround**: periodically call `ctx.cacheClear()` from the runner to force-sweep the channel cache (the `cacheClear` path calls `cacheClean` twice with action=Clean, but due to the bug this still immediately sweeps `use_count()<=1` channels)
-3. **Monitor**: add a Prometheus gauge for `chanByName.size()` to track cache growth over time
+1. **File issue** on https://github.com/epics-base/pvxs with the proposed cacheClean mark fix
+2. **Suggest backpressure**: propose the `_dispatch()` high-water mark as a defense-in-depth measure (see [Additional Contributing Factors §4](#4-event-loop-work-queue-has-no-backpressure))
+3. **Workaround**: periodically call `ctx.cacheClear()` from the runner to force-sweep the channel cache
+4. **Monitor**: add a Prometheus gauge for `chanByName.size()` and `actions.size()` to track cache growth and queue depth over time
+5. **Heap profiling**: run a longer soak (hours) under `jemalloc` or `heaptrack` to fully characterize which specific objects dominate the heap growth under churn
