@@ -10,7 +10,119 @@
 
 ## Summary
 
-The `pvxs` client channel cache garbage collector (`cacheClean()`) contains a logic bug that renders its two-phase mark/sweep design ineffective. The "mark" phase is dead code — channels are either swept immediately or never swept at all. Under sustained high-frequency `ctx.get()` workloads, this contributes to RSS growth over time because channel entries accumulate in the `chanByName` cache and are never eligible for collection.
+When a p4p client calls `ctx.get(pv)`, pvxs creates a **Channel** object for that PV and
+stores it in a cache (`chanByName`). The Channel owns a network **Connection**, a type
+cache (`rxRegistry`), and socket state — it is expensive to build. The cache exists so
+repeated gets to the same PV **reuse** the same Channel instead of rebuilding it.
+
+A background timer (`cacheClean()`) fires every 10 seconds to garbage-collect Channels
+nobody is using. It is designed as a two-phase mark/sweep:
+
+1. **Mark**: if a Channel is idle (`use_count() == 1` — only the cache holds it), flag it
+   `garbage = true`
+2. **Sweep**: on the *next* tick (10s later), if it's still flagged, erase it
+
+The grace period matters: if a new `get()` reuses the Channel between ticks,
+`Channel::build()` resets `garbage = false` and the Channel survives. A PV polled every
+few seconds keeps its Channel warm indefinitely.
+
+### The bug
+
+```cpp
+else if(action!=Context::Clean || cur->second.use_count()<=1) {
+    cur->second->garbage = true;                            // (1) always set true
+    if(action==Context::Clean && !cur->second->garbage) {  // (2) !true → always FALSE
+        // mark for next sweep  ← DEAD CODE, never runs
+    } else {
+        chanByName.erase(cur);  // ← sweep: ALWAYS taken instead
+    }
+}
+```
+
+Line (1) sets `garbage = true`, then line (2) tests `!garbage` — always false. The mark
+branch is dead code. **The grace period is gone.** On the normal timer path
+(`action == Clean`) the branch is only entered when the Channel is idle
+(`use_count() <= 1`), and once entered it always falls straight to the **sweep**.
+
+Net effect: **any Channel that is momentarily idle at a 10s tick is deleted immediately**,
+with no second-chance tick.
+
+### Why this leaks under fast polling — it's churn, not accumulation
+
+Walk through what a fast poll loop does against the broken cleaner:
+
+```
+get(PV_A) ──► build Channel_A + Connection + rxRegistry   (expensive)
+           ── result returned to Python
+           ── GPROp destructor queued on event loop (async) ─┐
+                                                             │ refcount → 1 soon after
+10s tick ─► PV_A idle (use_count==1) ──► SWEPT, erased ◄─────┘
+get(PV_A) ──► must REBUILD Channel_A + Connection + rxRegistry  (expensive again!)
+10s tick ─► SWEPT again
+get(PV_A) ──► REBUILD again ...
+```
+
+Each get returns its result to Python, but the underlying `GPROp` (Get/Put/RPC Operation
+— the C++ object that ran the request) is destroyed **asynchronously** on the pvxs event
+loop, not inline. The broken cleaner sweeps idle Channels the instant it sees them, so a
+Channel that just went idle is **rebuilt from scratch on the very next get**.
+
+```
+              WITHOUT fix (broken)              WITH fix (grace period)
+              ───────────────────              ───────────────────────
+tick 1:       PV idle → SWEEP (delete)         PV idle → MARK (keep)
+next get:     REBUILD Channel+Conn+registry    reuse existing Channel
+                                               (build() clears the mark)
+tick 2:       (already gone)                   still used → stays
+result:       constant alloc/free thrash       Channel stays warm, reused
+```
+
+Two things drive RSS up in the broken case:
+
+1. **Allocation outpaces async free.** New Channels/Connections/registries are allocated
+   synchronously on the polling thread; their destruction is queued on the event loop.
+   Fast enough polling → the free queue never catches up → live allocation grows.
+2. **`rxRegistry` rebuild.** Every rebuilt Connection re-negotiates and re-caches type
+   descriptions from the server, re-allocating heap a reused Connection would have kept.
+
+### The proof: it's churn
+
+The A/B test measured the stock build running **253 get iterations in 60s** vs the fixed
+build's **593** — 2.3× slower. If Channels merely piled up passively, throughput would be
+unchanged. It drops because in the stock build **every get pays the Channel + Connection
++ registry rebuild cost**. That directly confirms create → sweep → recreate thrash.
+
+```
+                    Single PV                    Many PVs, fast poll
+                    ─────────                    ───────────────────
+reuse between ticks: get arrives before tick,    some PVs idle at each tick →
+                     Channel stays warm          swept → rebuilt next get
+broken-GC effect:    ~no churn → NO LEAK         constant churn → LEAK
+                                                 (~1.6 MB/h at 180 PVs)
+```
+
+### The fix
+
+Move `garbage = true` **inside** the mark branch (see [Proposed Fix](#proposed-fix)). This
+restores the grace period: an idle Channel is marked on one tick and swept only if it is
+*still* idle on the next. A PV polled again in between keeps its Channel — no rebuild, no
+churn, RSS flat. Confirmed by the A/B test: **+21.3 MB stock vs +0.1 MB fixed** over 2.5M
+gets.
+
+> **Note on an earlier hypothesis.** A prior version of this report speculated the leak
+> came from *multiple Channel instances per PV lingering via retained `shared_ptr`s*. That
+> is not supported: when a map entry is erased or replaced its `shared_ptr` drops, and
+> once the pending GPROp finishes the Channel is freed. The verified mechanism is **churn**
+> (constant sweep + rebuild), evidenced by the 2.3× throughput drop — not passive object
+> accumulation. Exact per-object heap growth under churn is not fully characterized; see
+> [Recommendation](#recommendation) for the `chanByName.size()` gauge and heap-profiling
+> follow-ups.
+
+---
+
+## Detailed Summary
+
+The `pvxs` client channel cache garbage collector (`cacheClean()`) contains a logic bug that renders its two-phase mark/sweep design ineffective. The "mark" phase is dead code, so the intended 10-second grace period never happens. On the normal timer path, any Channel that is momentarily idle at a cleanup tick is swept immediately. Under sustained high-frequency `ctx.get()` workloads across many PVs, this produces constant create → sweep → rebuild churn: Channels (and their Connections and type registries) are destroyed the instant they go idle and rebuilt on the next get. Because Channel destruction is dispatched asynchronously to the event loop while creation happens synchronously, allocation outpaces reclamation and RSS grows over time.
 
 ---
 
