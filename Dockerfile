@@ -2,13 +2,19 @@ ARG PYTHON_VERSION=3.12
 ARG LCLS_LATTICE_REF=c6b8defbf2ba83bf8f5af70191c893de361657d1
 ARG VIRTUAL_ACCELERATOR_REF=fbd2f392809b59280bcb97da76ab11c0438dd915
 ARG DOCKER_PLATFORM=linux/amd64
+ARG EPICS_BASE_VERSION=R7.0.10
 ARG PVXS_REPO=https://github.com/bisegni/pvxs.git
-ARG PVXS_BRANCH=fix/cache-clean
+ARG PVXS_BRANCH=fix/pva-channel-cleanup
+ARG P4P_VERSION=4.2.2
 
 # ── base: all deps, no app files ─────────────────────────────────────────────
 FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS base
 ARG PYTHON_VERSION
 ARG LCLS_LATTICE_REF
+ARG EPICS_BASE_VERSION
+ARG PVXS_REPO
+ARG PVXS_BRANCH
+ARG P4P_VERSION
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -40,7 +46,14 @@ ENV TZ=America/Los_Angeles
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PATH=/opt/conda/epics/bin/linux-x86_64:/opt/conda/bin:$PATH \
+    EPICS_ROOT=/opt/epics \
+    EPICS_BASE=/opt/epics/base \
+    PVXS_ROOT=/opt/epics/pvxs \
+    P4P_ROOT=/opt/epics/p4p \
+    EPICS_HOST_ARCH=linux-x86_64 \
+    PATH=/opt/epics/base/bin/linux-x86_64:/opt/epics/pvxs/bin/linux-x86_64:/opt/conda/bin:$PATH \
+    LD_LIBRARY_PATH=/opt/epics/base/lib/linux-x86_64:/opt/epics/pvxs/lib/linux-x86_64 \
+    PYTHONPATH=/opt/epics/p4p-python \
     LCLS_LATTICE=/opt/lcls-lattice \
     KMP_DUPLICATE_LIB_OK=TRUE \
     OMP_NUM_THREADS=2 \
@@ -48,7 +61,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OPENBLAS_NUM_THREADS=2 \
     TORCH_NUM_THREADS=2 \
     EPICS_PVA_AUTO_ADDR_LIST=YES \
-    PYEPICS_LIBCA=/opt/conda/epics/lib/linux-x86_64/libca.so \
+    PYEPICS_LIBCA=/opt/epics/base/lib/linux-x86_64/libca.so \
     MALLOC_ARENA_MAX=1
 # tcmalloc was preloaded here to reduce fragmentation, but it silently defeated every other
 # memory mitigation in this repo: tcmalloc does not export malloc_trim, so the three
@@ -60,7 +73,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash bzip2 curl git patchelf \
-       build-essential libevent-dev \
+       build-essential libevent-dev perl libreadline-dev libncurses-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN arch="$(dpkg --print-architecture)" \
@@ -78,7 +91,6 @@ RUN arch="$(dpkg --print-architecture)" \
     # the rad_map leak (#2177/#2175) that grew this service 269 MB -> 4.6 GB in 17 h. Leaving
     # it unpinned meant Docker reused the cached conda layer and silently kept 20260828.0.
     && conda install -y "python=${PYTHON_VERSION}" pip "bmad=20260904.1" pytao \
-    && conda install epics-base pvxs=1.5.2 \
     && patchelf --clear-execstack /opt/conda/lib/libtao.so \
     && conda clean -afy
 
@@ -88,7 +100,36 @@ RUN git clone https://github.com/slaclab/lcls-lattice.git /opt/lcls-lattice \
     && cd /opt/lcls-lattice \
     && git checkout ${LCLS_LATTICE_REF}
 
-RUN python -m pip install --upgrade setuptools wheel pyepics p4p prometheus-client memray \
+# ── Build EPICS Base, PVXS, and p4p from source ─────────────────────────────
+# Manager mandate: EPICS Base + PVXS + p4p come from source (not conda/PyPI).
+# PVXS is bisegni/pvxs@fix/pva-channel-cleanup which fixes the channel-cache
+# leak that grew this service 269 MB -> 4.6 GB in 17 h. p4p 4.2.2 is built
+# against these exact EPICS Base + PVXS trees using conda's Python 3.12 so
+# its C extension is ABI-matched to the interpreter that runs bmad/pytao.
+# TODO: pin to upstream tags once the fix lands.
+
+RUN git clone --recurse-submodules --branch ${EPICS_BASE_VERSION} --depth 1 \
+        https://github.com/epics-base/epics-base.git ${EPICS_BASE} \
+    && make -C ${EPICS_BASE} -j"$(nproc)"
+
+RUN git clone --recurse-submodules --branch ${PVXS_BRANCH} --depth 1 \
+        ${PVXS_REPO} ${PVXS_ROOT} \
+    && printf 'EPICS_BASE = %s\n' "${EPICS_BASE}" > ${PVXS_ROOT}/configure/RELEASE.local \
+    && make -C ${PVXS_ROOT} -j"$(nproc)"
+
+RUN python -m pip install --no-cache-dir setuptools_dso cython nose2 ply numpy \
+    && git clone --recurse-submodules --branch ${P4P_VERSION} --depth 1 \
+        https://github.com/epics-base/p4p.git ${P4P_ROOT} \
+    && printf 'EPICS_BASE = %s\nPVXS = %s\n' "${EPICS_BASE}" "${PVXS_ROOT}" \
+        > ${P4P_ROOT}/configure/RELEASE.local \
+    && make -C ${P4P_ROOT} -j"$(nproc)" \
+    && P4P_INIT="$(find ${P4P_ROOT} -type f -path '*/p4p/__init__.py' \
+        ! -path '*/src/*' ! -path '*/documentation/*' | head -n 1)" \
+    && test -n "${P4P_INIT}" \
+    && ln -s "$(dirname "$(dirname "${P4P_INIT}")")" ${EPICS_ROOT}/p4p-python \
+    && python -c "import p4p; assert p4p.__file__.startswith('/opt/epics/p4p-python/'), p4p.__file__; print('p4p OK:', getattr(p4p, '__version__', 'unknown'), p4p.__file__)"
+
+RUN python -m pip install --upgrade setuptools wheel pyepics prometheus-client memray \
     && python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cpu torch \
     && git clone https://github.com/slaclab/virtual-accelerator.git /opt/virtual-accelerator \
     && cd /opt/virtual-accelerator \
@@ -97,27 +138,8 @@ RUN python -m pip install --upgrade setuptools wheel pyepics p4p prometheus-clie
     && cd /app \
     && python -m pip install --force-reinstall --no-deps \
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git" \
-        "lume-pva @ git+https://github.com/lume-science/lume-pva.git"
-
-# pvxs channel-cache leak fix — rebuild pvxslibs from bisegni/pvxs@fix/cache-clean
-# and force-reinstall p4p against it. p4p's PyPI wheel bundles pvxslibs which bundles
-# pvxs; the leak is in pvxs C++ (channel cleanup), so we swap the bundled pvxs tree
-# for the fork before compiling pvxslibs, then rebuild p4p from source so it links
-# against the patched pvxslibs. Runs after virtual-accelerator[pva] so its p4p wheel
-# gets overwritten.
-# TODO: revert to plain `pip install p4p` once the fix lands upstream.
-RUN python -m pip install --no-cache-dir epicscorelibs setuptools_dso cython \
-    && python -m pip download pvxslibs --no-binary pvxslibs -d /tmp/pvxslibs-dl \
-    && (cd /tmp/pvxslibs-dl && tar xzf pvxslibs-*.tar.gz) \
-    && PVXS_BUNDLED=$(find /tmp/pvxslibs-dl -maxdepth 3 -type d -name 'pvxs' | head -1) \
-    && echo "Replacing bundled pvxs at: $PVXS_BUNDLED" \
-    && rm -rf "$PVXS_BUNDLED" \
-    && git clone --branch ${PVXS_BRANCH} --depth 1 ${PVXS_REPO} "$PVXS_BUNDLED" \
-    && (cd "$PVXS_BUNDLED" && git submodule update --init) \
-    && (cd /tmp/pvxslibs-dl/pvxslibs-*/ && python -m pip install --no-cache-dir . --no-build-isolation) \
-    && python -m pip install --no-cache-dir --force-reinstall --no-binary p4p p4p \
-    && python -c "import p4p; print('p4p OK:', getattr(p4p, '__version__', 'unknown'))" \
-    && rm -rf /tmp/pvxslibs-dl
+        "lume-pva @ git+https://github.com/lume-science/lume-pva.git" \
+    && python -c "import p4p; assert p4p.__file__.startswith('/opt/epics/p4p-python/'), 'p4p was shadowed by a PyPI install: ' + p4p.__file__; print('p4p source-build still active:', p4p.__file__)"
 
 ENV PVA_PORT=5075
 EXPOSE 5075/tcp
