@@ -1,21 +1,26 @@
 # ---------------------------------------------------------------------------
-# Dockerfile.fixed — p4p with patched pvxslibs (cacheClean fix), built from
-# PyPI source — no ABI mismatch, everything uses epicscorelibs consistently.
+# Dockerfile.branch — p4p with custom pvxs repo/branch, no patch applied.
 #
 # Build:
-#   cd scripts/pvxs-fix-test
-#   docker build -f Dockerfile.fixed -t pvxs-test-fixed .
+#   cd scripts/cache-fix-test
+#   docker build -f Dockerfile.branch \
+#       --build-arg PVXS_REPO=https://github.com/youruser/pvxs.git \
+#       --build-arg PVXS_BRANCH=your-fix-branch \
+#       -t pvxs-test-branch .
 #
 # Run:
-#   docker run --rm -v "$(pwd)":/test pvxs-test-fixed \
-#       --gets 50000 --cycles 200 --soak 1800 --report /test/fixed_result.txt
+#   docker run --rm -v "$(pwd)":/test pvxs-test-branch \
+#       --gets 50000 --cycles 200 --soak 1800 --report /test/branch_result.txt
 #
 # Shell:
-#   docker run --rm -it --entrypoint bash -v "$(pwd)":/test pvxs-test-fixed
+#   docker run --rm -it --entrypoint bash -v "$(pwd)":/test pvxs-test-branch
 # ---------------------------------------------------------------------------
 
-# ── Stage 1: native EPICS base + patched pvxs (for CLI tools) ───────────────
+# ── Stage 1: native EPICS base + custom pvxs (for CLI tools) ────────────────
 FROM ubuntu:24.04 AS builder
+
+ARG PVXS_REPO=https://github.com/epics-base/pvxs.git
+ARG PVXS_BRANCH=1.5.2
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
@@ -33,9 +38,9 @@ RUN make -j$(nproc) INSTALL_LOCATION=/opt/local \
 ENV EPICS_BASE=/opt/local
 RUN /opt/epics-src/startup/EpicsHostArch > /etc/epics_host_arch
 
-# pvxs 1.5.2 (native build for CLI tools: pvxget, pvxmonitor, etc.)
-RUN git clone --branch 1.5.2 --depth 1 \
-    https://github.com/epics-base/pvxs.git /opt/pvxs-src
+# pvxs from custom repo/branch (native build for CLI tools)
+RUN git clone --branch ${PVXS_BRANCH} --depth 1 \
+    ${PVXS_REPO} /opt/pvxs-src
 WORKDIR /opt/pvxs-src
 RUN git submodule update --init
 
@@ -63,8 +68,11 @@ RUN arch=$(cat /etc/epics_host_arch) \
     && mkdir -p /opt/local/dbd \
     && find /opt/pvxs-src -name '*.dbd' -exec cp {} /opt/local/dbd/ \;
 
-# ── Stage 2: Python — patched pvxslibs from PyPI sdist + p4p ────────────────
+# ── Stage 2: Python — pvxslibs from custom source + p4p ─────────────────────
 FROM ubuntu:24.04 AS pybuilder
+
+ARG PVXS_REPO=https://github.com/epics-base/pvxs.git
+ARG PVXS_BRANCH=1.5.2
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
@@ -77,29 +85,27 @@ RUN apt-get update && apt-get install -y \
 # Build deps for pvxslibs and p4p
 RUN pip3 install epicscorelibs setuptools_dso cython nose2 --break-system-packages
 
-# Download and extract pvxslibs source
+# Download pvxslibs source, replace bundled pvxs with custom repo/branch
 RUN pip3 download pvxslibs --no-binary pvxslibs -d /tmp/pvxslibs-dl \
     && cd /tmp/pvxslibs-dl \
     && tar xzf pvxslibs-*.tar.gz
 
-# Find and patch cacheClean() in pvxslibs source
-RUN PVXS_CLIENT=$(find /tmp/pvxslibs-dl -name 'client.cpp' | grep pvxs | head -1) \
-    && echo "Patching: $PVXS_CLIENT" \
-    && perl -0777 -i -pe \
-       's{([ \t]+else if\(action!=Context::Clean \|\| cur->second\.use_count\(\)<=1\) \{)\n[ \t]+cur->second->garbage = true;\n\n([ \t]+if\(action==Context::Clean && !cur->second->garbage\) \{)\n([ \t]+// mark for next sweep)}\
-{$1\n$2\n$3\n                cur->second->garbage = true;}' \
-       "$PVXS_CLIENT" \
-    && echo "=== Patch applied ===" \
-    && grep -n "garbage" "$PVXS_CLIENT" | head -10 \
-    && mkdir -p /opt/pvxslibs-patched-src \
-    && cp "$PVXS_CLIENT" /opt/pvxslibs-patched-src/client.cpp
+# Clone custom pvxs to temp dir, then overlay source + headers onto bundled copy.
+# Preserves pvxslibs integration files while replacing core pvxs code.
+RUN git clone --branch ${PVXS_BRANCH} --depth 1 \
+       ${PVXS_REPO} /tmp/pvxs-custom \
+    && cd /tmp/pvxs-custom && git submodule update --init \
+    && PVXS_BUNDLED=$(find /tmp/pvxslibs-dl -maxdepth 3 -type d -name 'pvxs' | head -1) \
+    && echo "Overlaying custom pvxs onto: $PVXS_BUNDLED" \
+    && cp -a /tmp/pvxs-custom/src/. "$PVXS_BUNDLED/src/" \
+    && echo "=== Custom pvxs source overlaid ==="
 
-# Build pvxslibs from patched source
+# Build pvxslibs from custom source
 RUN cd /tmp/pvxslibs-dl/pvxslibs-*/ \
     && pip3 install . --break-system-packages --no-build-isolation \
-    && echo "=== pvxslibs built from patched source ==="
+    && echo "=== pvxslibs built from custom source ==="
 
-# Build p4p from PyPI — links against our patched pvxslibs (ABI consistent)
+# Build p4p from PyPI — links against our custom pvxslibs (ABI consistent)
 RUN pip3 install p4p --no-binary p4p --break-system-packages
 
 # Smoke test
@@ -117,12 +123,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /opt/local /opt/local
 COPY --from=builder /etc/epics_host_arch /etc/epics_host_arch
 COPY --from=pybuilder /usr /usr
-COPY --from=pybuilder /opt/pvxslibs-patched-src /opt/pvxslibs-patched-src
 
-# Only add /opt/local/bin to PATH for CLI tools (pvxget, etc.).
-# Do NOT add /opt/local/lib to LD_LIBRARY_PATH or ldconfig —
-# native EPICS 7.0.9 libpvxs would conflict with pvxslibs' epicscorelibs-based copy.
-# CLI tools have RPATH baked in; Python uses pvxslibs' bundled libs.
 ENV PATH="/opt/local/bin/linux-aarch64:/opt/local/bin/linux-x86_64:${PATH}"
 
 # Final smoke test

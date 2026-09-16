@@ -652,18 +652,19 @@ def _cli() -> None:
         _emit(block)
         return r
 
+    live = sys.stdout
     results.append(_run("repeated_gets",
-                         lambda: measure_repeated_gets(pv_names, args.gets, live_file=report_fh)))
+                         lambda: measure_repeated_gets(pv_names, args.gets, live_file=live)))
     results.append(_run("context_open_close",
-                         lambda: measure_context_open_close(pv_names, args.cycles, live_file=report_fh)))
+                         lambda: measure_context_open_close(pv_names, args.cycles, live_file=live)))
     results.append(_run("nonexistent_pv",
                          lambda: measure_nonexistent_pv(pv_names)))
     results.append(_run("context_without_close",
-                         lambda: measure_context_without_close(pv_names, args.cycles, live_file=report_fh)))
+                         lambda: measure_context_without_close(pv_names, args.cycles, live_file=live)))
 
     if args.soak > 0:
         _emit(f"  Running soak ({args.soak}s) — live RSS samples stream below...")
-        r = measure_soak(pv_names, args.soak, live_file=report_fh)
+        r = measure_soak(pv_names, args.soak, live_file=live)
         block = _format_result_block(r)
         _emit(block)
         results.append(r)
