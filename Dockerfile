@@ -2,6 +2,8 @@ ARG PYTHON_VERSION=3.12
 ARG LCLS_LATTICE_REF=c6b8defbf2ba83bf8f5af70191c893de361657d1
 ARG VIRTUAL_ACCELERATOR_REF=fbd2f392809b59280bcb97da76ab11c0438dd915
 ARG DOCKER_PLATFORM=linux/amd64
+ARG PVXS_REPO=https://github.com/bisegni/pvxs.git
+ARG PVXS_BRANCH=fix/cache-clean
 
 # ── base: all deps, no app files ─────────────────────────────────────────────
 FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS base
@@ -58,6 +60,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash bzip2 curl git patchelf \
+       build-essential libevent-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN arch="$(dpkg --print-architecture)" \
@@ -95,6 +98,26 @@ RUN python -m pip install --upgrade setuptools wheel pyepics p4p prometheus-clie
     && python -m pip install --force-reinstall --no-deps \
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git" \
         "lume-pva @ git+https://github.com/lume-science/lume-pva.git"
+
+# pvxs channel-cache leak fix — rebuild pvxslibs from bisegni/pvxs@fix/cache-clean
+# and force-reinstall p4p against it. p4p's PyPI wheel bundles pvxslibs which bundles
+# pvxs; the leak is in pvxs C++ (channel cleanup), so we swap the bundled pvxs tree
+# for the fork before compiling pvxslibs, then rebuild p4p from source so it links
+# against the patched pvxslibs. Runs after virtual-accelerator[pva] so its p4p wheel
+# gets overwritten.
+# TODO: revert to plain `pip install p4p` once the fix lands upstream.
+RUN python -m pip install --no-cache-dir epicscorelibs setuptools_dso cython \
+    && python -m pip download pvxslibs --no-binary pvxslibs -d /tmp/pvxslibs-dl \
+    && (cd /tmp/pvxslibs-dl && tar xzf pvxslibs-*.tar.gz) \
+    && PVXS_BUNDLED=$(find /tmp/pvxslibs-dl -maxdepth 3 -type d -name 'pvxs' | head -1) \
+    && echo "Replacing bundled pvxs at: $PVXS_BUNDLED" \
+    && rm -rf "$PVXS_BUNDLED" \
+    && git clone --branch ${PVXS_BRANCH} --depth 1 ${PVXS_REPO} "$PVXS_BUNDLED" \
+    && (cd "$PVXS_BUNDLED" && git submodule update --init) \
+    && (cd /tmp/pvxslibs-dl/pvxslibs-*/ && python -m pip install --no-cache-dir . --no-build-isolation) \
+    && python -m pip install --no-cache-dir --force-reinstall --no-binary p4p p4p \
+    && python -c "import p4p; print('p4p OK:', getattr(p4p, '__version__', 'unknown'))" \
+    && rm -rf /tmp/pvxslibs-dl
 
 ENV PVA_PORT=5075
 EXPOSE 5075/tcp
