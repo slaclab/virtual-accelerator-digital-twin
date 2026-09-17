@@ -6,6 +6,11 @@ ARG EPICS_BASE_VERSION=R7.0.10
 ARG PVXS_REPO=https://github.com/bisegni/pvxs.git
 ARG PVXS_BRANCH=fix/pva-channel-cleanup
 ARG P4P_VERSION=4.2.2
+# lume-base pinned: newer versions changed how PV type names are handled, which
+# breaks with our source-built p4p 4.2.2 ("names must be a list of strings").
+# 0.5.0 is the last known-good with our patches; upgrade only after verifying
+# lume-pva's Type() construction still matches p4p's runtime expectations.
+ARG LUME_BASE_VERSION=0.5.0
 
 # ── base: all deps, no app files ─────────────────────────────────────────────
 FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS base
@@ -15,6 +20,7 @@ ARG EPICS_BASE_VERSION
 ARG PVXS_REPO
 ARG PVXS_BRANCH
 ARG P4P_VERSION
+ARG LUME_BASE_VERSION
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -137,9 +143,10 @@ RUN python -m pip install --upgrade setuptools wheel pyepics prometheus-client m
     && python -m pip install -e ".[bmad,pva,surrogate]" \
     && cd /app \
     && python -m pip install --force-reinstall --no-deps \
+        "lume-base==${LUME_BASE_VERSION}" \
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git" \
         "lume-pva @ git+https://github.com/lume-science/lume-pva.git" \
-    && python -c "import p4p; assert p4p.__file__.startswith('/opt/epics/p4p-python/'), 'p4p was shadowed by a PyPI install: ' + p4p.__file__; print('p4p source-build still active:', p4p.__file__)"
+    && python -c "import lume, p4p; print('lume:', lume.__version__ if hasattr(lume, '__version__') else 'unknown'); assert p4p.__file__.startswith('/opt/epics/p4p-python/'), 'p4p was shadowed by a PyPI install: ' + p4p.__file__; print('p4p source-build still active:', p4p.__file__)"
 
 ENV PVA_PORT=5075
 EXPOSE 5075/tcp
