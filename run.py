@@ -299,16 +299,28 @@ def main():
         if not start_element:
             raise ValueError("cu_hxr_rmat requires START_ELEMENT")
         model = get_cu_hxr_rmat(start_element=start_element, end_element=end_element)
-        # RMatrixAction declares `dtype: type = float`, but lume_pva's NDVariableHandler
-        # looks up the dtype in a table keyed on np.dtype objects (see
-        # todo/patches/lume_pva_variables.patch.py:60-74). The Python `float` class is not
-        # a key, so is_supported() returns False and the PV is skipped with
-        # "Unsupported variable" -- the rmat PV never gets served. Normalize to np.float64.
-        # TODO: fix upstream in virtual_accelerator/bmad/actions.py::RMatrixAction.
+        # lume_pva's NDVariableHandler._typecode does a raw dict lookup keyed on
+        # variable.dtype, but the map keys are np.dtype instances while RMatrixAction
+        # declares `dtype: type = float` (a Python class, pinned by pydantic to a `type`).
+        # `float in {np.dtype(np.float64): ...}` is False, so the PV is skipped with
+        # "Unsupported variable" and never served. Normalize the lookup by wrapping the
+        # variable's dtype in np.dtype() -- this collapses Python `float`, np.float64,
+        # and np.dtype('float64') to the same key. See todo/patches/lume_pva_variables.patch.py:366.
+        # TODO: fix upstream in lume_pva by wrapping the lookup in np.dtype().
         import numpy as _np
-        for _v in model.supported_variables.values():
-            if type(_v).__name__ == "RMatrixAction":
-                _v.dtype = _np.dtype(_np.float64)
+        from lume_pva import variables as _lpvars
+        _orig_typecode = _lpvars.NDVariableHandler._typecode
+        def _typecode_patched(self, variable):
+            tc = _lpvars._TORCH_TYPECODES.get(variable.dtype)
+            if tc is not None:
+                return tc
+            tc = _lpvars._NUMPY_TYPECODES.get(_np.dtype(variable.dtype))
+            if tc is not None:
+                return tc
+            raise TypeError(
+                f'{variable.name}: Unsupported type "{variable.dtype.__class__}"'
+            )
+        _lpvars.NDVariableHandler._typecode = _typecode_patched
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
