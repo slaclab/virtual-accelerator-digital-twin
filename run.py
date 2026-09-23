@@ -252,8 +252,6 @@ def main():
     mem_log_interval_s = int(os.environ.get("MEM_LOG_INTERVAL_S", "300"))
     remote_inputs     = os.environ.get("REMOTE_INPUTS", "").lower() in ("true", "1", "yes")
     pv_suffix         = os.environ.get("PV_SUFFIX", "")
-    pv_suffix_ml      = os.environ.get("PV_SUFFIX_ML", "")
-    pv_suffix_ph      = os.environ.get("PV_SUFFIX_PH", "")
     pv_renames        = json.loads(os.environ.get("PV_RENAMES", "{}"))
     metrics_port      = int(os.environ.get("METRICS_PORT", "9090"))
     top_n             = int(os.environ.get("MEMRAY_TOP_N", "10"))
@@ -275,6 +273,7 @@ def main():
         get_facet_bmad_model,
         get_facet_staged_model,
     )
+    from virtual_accelerator.models.special import get_cu_hxr_rmat
 
     # libtao leaks ~89 KB of native heap per beam track (upstream bmad bug). Running Tao in
     # a child process lets us respawn it to reclaim that memory. virtual_accelerator's
@@ -295,6 +294,11 @@ def main():
         model = get_facet_bmad_model(end_element=end_element, track_beam=True)
     elif model_name == "facet_staged":
         model = get_facet_staged_model(end_element=end_element, n_particles=n_particles)
+    elif model_name == "cu_hxr_rmat":
+        start_element = os.environ.get("START_ELEMENT")
+        if not start_element:
+            raise ValueError("cu_hxr_rmat requires START_ELEMENT")
+        model = get_cu_hxr_rmat(start_element=start_element, end_element=end_element)
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
@@ -341,12 +345,7 @@ def main():
 
     skip_suffix = {"name"}
 
-    if (pv_suffix_ml or pv_suffix_ph) and hasattr(model, 'lume_model_instances'):
-        ml_vars = set(model.lume_model_instances[0].supported_variables)
-        for k, v in config['variables'].items():
-            if v['mode'] == 'ro' and k not in skip_suffix:
-                v['pv'] = v['pv'] + (pv_suffix_ml if k in ml_vars else pv_suffix_ph)
-    elif pv_suffix:
+    if pv_suffix:
         for k, v in config['variables'].items():
             if v['mode'] == 'ro' and k not in skip_suffix:
                 v['pv'] = v['pv'] + pv_suffix
