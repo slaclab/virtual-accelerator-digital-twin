@@ -1,0 +1,67 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: virtual-accelerator
+nameSuffix: -rmat
+commonLabels:
+  app: virtual-accelerator-rmat
+resources:
+  - ../../../base
+generatorOptions:
+  disableNameSuffixHash: true
+images:
+  - name: ghcr.io/slaclab/virtual-accelerator-digital-twin
+    newTag: feature-rmat
+
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+    target:
+      kind: Deployment
+      name: virtual-accelerator
+  - patch: |-
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: virtual-accelerator-rmat
+    target:
+      kind: ServiceMonitor
+      name: virtual-accelerator
+configMapGenerator:
+  - name: va-config
+    namespace: virtual-accelerator
+    behavior: create
+    literals:
+      - MODEL=cu_hxr_rmat
+      - START_ELEMENT=WS27644
+      - END_ELEMENT=WS28144
+      - REMOTE_INPUTS=true
+      - PV_SUFFIX=_LUME_PH2
+      - PV_SUFFIX_ML=
+      - PV_SUFFIX_PH=
+      - PV_RENAMES={"sigma_z":"OTRS:IN20:571:ZRMS","norm_emit_x":"OTRS:IN20:571:EMITN_X","norm_emit_y":"OTRS:IN20:571:EMITN_Y"}
+      - LOG_LEVEL=INFO
+      - LCLS_LATTICE=/opt/lcls-lattice
+      - KMP_DUPLICATE_LIB_OK=TRUE
+      - OMP_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - TORCH_NUM_THREADS=1
+      - EPICS_PVA_AUTO_ADDR_LIST=NO
+      - EPICS_PVA_BROADCAST_PORT=0
+      - EPICS_PVA_NAME_SERVERS=epics-proxy.epics-socat-proxy:5169
+      - EPICS_CA_AUTO_ADDR_LIST=NO
+      - EPICS_CA_ADDR_LIST=
+      - EPICS_CA_NAME_SERVERS=epics-proxy.epics-socat-proxy:5065
+      - PYEPICS_LIBCA=/opt/conda/lib/libca.so
+      - MALLOC_ARENA_MAX=1
+      - MALLOC_MMAP_THRESHOLD_=131072
+      - LD_PRELOAD=
+      - MEM_LOG_INTERVAL_S=60
+      - MEMRAY_TOP_N=0
+      # No beam tracking -> no libtao heap growth to reclaim. Recycling stays enabled at
+      # defaults but never fires (RSS growth threshold never crossed).
+      - BMAD_RADIATION_FLUCTUATIONS=on
+      - TAO_RECYCLE_ENABLED=true
+      - TAO_RECYCLE_RSS_GROWTH_MB=400
+      - TAO_RECYCLE_MAX_CYCLES=0
