@@ -299,6 +299,16 @@ def main():
         if not start_element:
             raise ValueError("cu_hxr_rmat requires START_ELEMENT")
         model = get_cu_hxr_rmat(start_element=start_element, end_element=end_element)
+        # RMatrixAction declares `dtype: type = float`, but lume_pva's NDVariableHandler
+        # looks up the dtype in a table keyed on np.dtype objects (see
+        # todo/patches/lume_pva_variables.patch.py:60-74). The Python `float` class is not
+        # a key, so is_supported() returns False and the PV is skipped with
+        # "Unsupported variable" -- the rmat PV never gets served. Normalize to np.float64.
+        # TODO: fix upstream in virtual_accelerator/bmad/actions.py::RMatrixAction.
+        import numpy as _np
+        for _v in model.supported_variables.values():
+            if type(_v).__name__ == "RMatrixAction":
+                _v.dtype = _np.dtype(_np.float64)
     else:
         raise ValueError(f"Unknown model: {model_name}")
 

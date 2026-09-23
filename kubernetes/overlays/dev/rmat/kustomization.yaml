@@ -10,7 +10,7 @@ generatorOptions:
   disableNameSuffixHash: true
 images:
   - name: ghcr.io/slaclab/virtual-accelerator-digital-twin
-    newTag: feature-rmat
+    newTag: feature-rmat-dt
 
 patches:
   - patch: |-
