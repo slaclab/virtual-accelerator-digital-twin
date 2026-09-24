@@ -43,4 +43,4 @@ echo "PVA server listening on port: $PORT (tcp), broadcast: $((PORT + 1)) (udp)"
 # so os.environ.setdefault() inside Python is always too late.
 export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
 
-exec python run.py
+exec python "${RUN_SCRIPT:-run.py}"

@@ -1,21 +1,33 @@
 """Validate DT outputs by replaying captured inputs through a local VA.
 
-Loads a capture file (from capture_dt.py), runs the local staged model with
-each snapshot's inputs, and compares against the DT's outputs.
+Loads a capture file (from capture_dt.py, capture_dt_gated.py, or
+capture_dt_aligned.py), runs the local model with each snapshot's inputs,
+and compares against the DT's outputs.
+
+The script auto-detects the capture mode from the JSON:
+  - "gated"   : snapshots use snap["inputs"] (already coherent with outputs)
+  - "aligned" : per-output alignment is available; --align-strategy chooses
+      per-output  : replay each output with the inputs the DT saw at its ts
+      oldest      : replay ONCE with inputs at the oldest output's ts (fast)
+      current     : replay with inputs_at_capture (equivalent to legacy)
+  - legacy    : snap["inputs"] as before
 
 Usage (on dev-srv09):
     python scripts/validate_dt.py /path/to/dt_capture.json
+    python scripts/validate_dt.py /path/to/dt_capture_aligned.json --align-strategy oldest
+    python scripts/validate_dt.py /path/to/dt_capture_aligned.json --align-strategy per-output
 """
 
 import argparse
 import json
+import os
 import sys
 
 import numpy as np
 _orig = np.random.default_rng
 np.random.default_rng = lambda *a, **k: _orig(12345)
 
-from virtual_accelerator.models.cu_hxr import get_cu_hxr_staged_model
+DT_MODEL = os.environ.get("DT_MODEL", "cu_hxr_staged")
 
 
 # Beam-derived outputs that are stochastic (no seed) and can't be compared
@@ -100,6 +112,11 @@ def compare_values(local_val, dt_val, rtol=0.01, atol=1e-6):
     return None, "skip:type"
 
 
+def clean_inputs(inputs):
+    return {k: v for k, v in (inputs or {}).items()
+            if v is not None and not k.endswith(":BDES")}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("capture_file", help="Path to dt_capture.json")
@@ -107,17 +124,40 @@ def main():
     parser.add_argument("--atol", type=float, default=1e-6, help="Absolute tolerance (default: 1e-6)")
     parser.add_argument("--include-stochastic", action="store_true",
                         help="Include stochastic beam-derived outputs (noisy comparison)")
+    parser.add_argument("--align-strategy",
+                        choices=["auto", "current", "oldest", "per-output"],
+                        default="auto",
+                        help="For aligned captures: which inputs to replay. "
+                             "auto=oldest if available, else current. "
+                             "per-output runs the model once per output (slow, most rigorous).")
     args = parser.parse_args()
 
     with open(args.capture_file) as f:
         data = json.load(f)
 
-    print(f"Loaded capture: {data['n_snapshots']} snapshots from {data['capture_time']}")
+    capture_mode = data.get("capture_mode", "legacy")
+    print(f"Loaded capture: {data['n_snapshots']} snapshots from {data['capture_time']} "
+          f"(mode={capture_mode})")
     print(f"Tolerances: rtol={args.rtol}, atol={args.atol}")
-    print(f"Loading staged model...")
-    model = get_cu_hxr_staged_model(end_element="OTR4", n_particles=10000)
+    print(f"Loading model {DT_MODEL}...")
+    if DT_MODEL == "cu_hxr_bmad":
+        from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
+        model = get_cu_hxr_bmad_model(end_element="OTR4", track_beam=True)
+    elif DT_MODEL == "cu_hxr_staged":
+        from virtual_accelerator.models.cu_hxr import get_cu_hxr_staged_model
+        model = get_cu_hxr_staged_model(end_element="OTR4", n_particles=10000)
+    else:
+        raise ValueError(f"Unknown DT_MODEL: {DT_MODEL}")
 
     output_names = data["output_names"]
+
+    strategy = args.align_strategy
+    if strategy == "auto":
+        if capture_mode == "aligned":
+            strategy = "oldest"
+        else:
+            strategy = "current"
+    print(f"Input-selection strategy: {strategy}")
 
     total_ok = 0
     total_diff = 0
@@ -128,11 +168,53 @@ def main():
 
     for snap in data["snapshots"]:
         cycle = snap["cycle"]
-        inputs = {k: v for k, v in snap["inputs"].items()
-                  if v is not None and not k.endswith(":BDES")}
         dt_outputs = snap["outputs"]
 
-        # Run local model with captured inputs
+        if strategy == "per-output" and capture_mode == "aligned":
+            # Run the model once per output using per-output-aligned inputs.
+            aligned_map = snap.get("inputs_aligned_per_output", {}) or {}
+            for name in output_names:
+                dt_val = dt_outputs.get(name)
+                if is_stochastic(name) and not args.include_stochastic:
+                    total_stochastic += 1
+                    continue
+                inputs_for_this = clean_inputs(aligned_map.get(name))
+                if not inputs_for_this:
+                    # No per-output inputs (output had no timestamp) -- fall back
+                    inputs_for_this = clean_inputs(
+                        snap.get("inputs_at_oldest_output_ts")
+                        or snap.get("inputs_at_capture")
+                        or snap.get("inputs")
+                    )
+                model.set(inputs_for_this)
+                local_outputs = model.get([name])
+                local_val = local_outputs.get(name)
+                match, detail = compare_values(local_val, dt_val, rtol=args.rtol, atol=args.atol)
+                if match is None:
+                    total_skip += 1
+                    skipped.append((cycle, name, detail))
+                elif match:
+                    total_ok += 1
+                else:
+                    total_diff += 1
+                    diffs.append((cycle, name, detail))
+            continue
+
+        # Non per-output: pick a single input set, replay once.
+        if strategy == "oldest":
+            inputs = clean_inputs(
+                snap.get("inputs_at_oldest_output_ts")
+                or snap.get("inputs_at_capture")
+                or snap.get("inputs")
+            )
+        elif strategy == "current":
+            inputs = clean_inputs(
+                snap.get("inputs_at_capture")
+                or snap.get("inputs")
+            )
+        else:
+            inputs = clean_inputs(snap.get("inputs") or snap.get("inputs_at_capture"))
+
         model.set(inputs)
         local_outputs = model.get(output_names)
 

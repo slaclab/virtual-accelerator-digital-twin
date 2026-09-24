@@ -6,6 +6,9 @@ Configurable via environment variables:
     N_PARTICLES    - Number of particles (default: 10000)
     LOG_LEVEL      - Logging level (default: INFO)
     REMOTE_INPUTS  - Read inputs from prod EPICS (default: false)
+    REMOTE_MODEL_MODE - "snapshot" (default) or "continuous". snapshot: pvget every input
+                        each cycle (coherent, slow). continuous: monitor-driven async
+                        updates (~10x faster per cycle, inputs arrive independently).
     PV_SUFFIX      - Suffix appended to served PV names (default: none)
     PV_SUFFIX_ML   - Suffix for ML model outputs in staged models (default: none)
     PV_SUFFIX_PH   - Suffix for physics model outputs in staged models (default: none)
@@ -259,6 +262,11 @@ def main():
     recycle_enabled   = os.environ.get("TAO_RECYCLE_ENABLED", "true").lower() in ("true", "1", "yes")
     recycle_growth_mb = float(os.environ.get("TAO_RECYCLE_RSS_GROWTH_MB", "400"))
     recycle_max_cycles = int(os.environ.get("TAO_RECYCLE_MAX_CYCLES", "0"))
+    # snapshot: take_snapshot() serially pvget()s every remote input each cycle. Slow but
+    # coherent -- all inputs are latched together, which matters for whole-beamline sims.
+    # continuous: inputs subscribed via monitor at startup, updates arrive async. Much faster
+    # per cycle (no per-cycle network get storm), but inputs arrive independently.
+    remote_model_mode = os.environ.get("REMOTE_MODEL_MODE", "snapshot").strip().lower()
 
     import logging
     logging.basicConfig(level=getattr(logging, log_level))
@@ -372,7 +380,7 @@ def main():
             if v['mode'] == 'ro' and k not in skip_suffix:
                 v['pv'] = v['pv'] + pv_suffix
 
-    config["remote_model_mode"] = "snapshot"
+    config["remote_model_mode"] = remote_model_mode
 
     for k, v in config["variables"].items():
         if k == "track_type" or k.endswith(":BDES"):
@@ -386,7 +394,11 @@ def main():
         start_http_server(metrics_port)
         print(f"[metrics] Prometheus HTTP server on :{metrics_port}/metrics", file=sys.stderr, flush=True)
 
-    if remote_inputs:
+    # In continuous mode, lume-pva subscribes to input PVs via monitors at startup and
+    # take_snapshot() is unused -- the runner is driven by _monitor_callback pushing to
+    # the queue asynchronously. Starting snapshot_loop here would just enqueue duplicate
+    # data every 100ms and burn CPU. Skip it.
+    if remote_inputs and remote_model_mode == "snapshot":
         import gc
         import time as _time
         import torch

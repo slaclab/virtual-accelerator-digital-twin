@@ -36,6 +36,11 @@ configMapGenerator:
       - START_ELEMENT=WS27644
       - END_ELEMENT=WS28144
       - REMOTE_INPUTS=true
+      # Monitor-driven async input updates. Snapshot mode's per-cycle pvget() storm was
+      # the dominant contributor to the ~700ms rmat update time (~40-60 remote input PVs
+      # x ~10ms RTT via the socat proxy). rmat only cares about the quads in the WS-WS
+      # range; strict input coherency isn't needed here (unlike whole-beamline sims).
+      - REMOTE_MODEL_MODE=continuous
       - PV_SUFFIX=_LUME_PH2
       - PV_SUFFIX_ML=
       - PV_SUFFIX_PH=
