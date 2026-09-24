@@ -71,7 +71,11 @@ configMapGenerator:
       - MEMRAY_TOP_N=0
       # No beam tracking -> no libtao heap growth to reclaim. Recycling stays enabled at
       # defaults but never fires (RSS growth threshold never crossed).
-      - BMAD_RADIATION_FLUCTUATIONS=on
+      # Radiation off for rmat: transfer-matrix calc is a linear-optics operation, radiation
+      # fluctuations are stochastic noise on the off-diagonals. Also tests hypothesis that
+      # PVA-side value dedupe was throttling output rate below cycle rate due to sub-threshold
+      # jitter every cycle.
+      - BMAD_RADIATION_FLUCTUATIONS=off
       - TAO_RECYCLE_ENABLED=true
       - TAO_RECYCLE_RSS_GROWTH_MB=400
       - TAO_RECYCLE_MAX_CYCLES=0

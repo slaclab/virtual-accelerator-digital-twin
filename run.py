@@ -333,6 +333,29 @@ def main():
                 f'{variable.name}: Unsupported type "{variable.dtype.__class__}"'
             )
         _lpvars.NDVariableHandler._typecode = _typecode_patched
+
+        # Perf: LUMEBmadModel.__init__ unconditionally registers get_tao_output_variables
+        # (~285 element-level FloorAction/OrbitAction/MultipolesAction/LordSlaveAction/
+        # BunchParamsAction). update_state() then re-queries every one of them via
+        # tao pipe cmds on EVERY input change. rmat only needs RMatrixAction; the rest
+        # is dead weight for this model. Override update_state to only refresh action
+        # vars whose class name is RMatrixAction. Projected drop: 165ms -> ~40-70ms.
+        # TODO: fix upstream in LUMEBmadModel.__init__ (make output-var registration
+        # conditional on a mode flag) or in get_cu_hxr_rmat (unregister after construction).
+        from virtual_accelerator.bmad.actions import RMatrixAction as _RMatrixAction
+        _rmat_var_names = [
+            n for n, v in model.supported_variables.items()
+            if isinstance(v, _RMatrixAction)
+        ]
+        print(f"[perf-fix] rmat vars to refresh: {_rmat_var_names}", file=sys.stderr, flush=True)
+        _n_skipped = len(model.supported_variables) - len(_rmat_var_names)
+        print(f"[perf-fix] skipping refresh of {_n_skipped} non-rmat action variables",
+              file=sys.stderr, flush=True)
+
+        def _update_state_rmat_only():
+            for name in _rmat_var_names:
+                model._state[name] = model.supported_variables[name]._get(model.simulator)
+        model.update_state = _update_state_rmat_only
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
