@@ -155,7 +155,6 @@ EXPOSE 9090/tcp
 # ── production: base + app files ─────────────────────────────────────────────
 FROM base AS production
 COPY run.py .
-COPY run_fft.py .
 COPY tao_recycle.py .
 COPY entrypoint.sh .
 COPY scripts/ ./scripts/
