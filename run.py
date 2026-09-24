@@ -267,6 +267,10 @@ def main():
     # continuous: inputs subscribed via monitor at startup, updates arrive async. Much faster
     # per cycle (no per-cycle network get storm), but inputs arrive independently.
     remote_model_mode = os.environ.get("REMOTE_MODEL_MODE", "snapshot").strip().lower()
+    # Ephemeral perf instrumentation: wrap RecyclableTao.cmd + model.set/get to log
+    # per-cycle wall-clock timing. Answers "where is the ~600ms model cycle going?".
+    # Enable by setting PERF_INSTRUMENT=1. Remove once perf work is complete.
+    perf_instrument = os.environ.get("PERF_INSTRUMENT", "").lower() in ("true", "1", "yes")
 
     import logging
     logging.basicConfig(level=getattr(logging, log_level))
@@ -364,6 +368,71 @@ def main():
         ),
         on_failure=_VA_TAO_RECYCLE_FAIL.inc,
     )
+
+    if perf_instrument:
+        import time as _perf_time
+        _perf_state = {"cmds": [], "cycle_id": 0}
+
+        # Wrap Tao.cmd on the live subprocess so we count and time every pipe RTT.
+        _bmad_stage = tao_recycle.find_bmad_model(model)
+        if _bmad_stage is None:
+            print("[perf] WARNING: no Bmad model; Tao.cmd instrumentation disabled",
+                  file=sys.stderr, flush=True)
+        else:
+            _tao_instance = _bmad_stage.tao
+            _orig_cmd = _tao_instance.cmd
+            def _timed_cmd(cmd, *a, **kw):
+                _t0 = _perf_time.perf_counter()
+                _r = _orig_cmd(cmd, *a, **kw)
+                _perf_state["cmds"].append((cmd[:60], _perf_time.perf_counter() - _t0))
+                return _r
+            _tao_instance.cmd = _timed_cmd
+            print("[perf] Tao.cmd wrapped; per-cycle summary will follow each model.set()",
+                  file=sys.stderr, flush=True)
+
+        # Wrap model.set / model.get to bound one "cycle" and flush the tao.cmd tally.
+        _orig_set = model.set
+        _orig_get = model.get
+        def _timed_set(values, *a, **kw):
+            _perf_state["cmds"].clear()
+            _t0 = _perf_time.perf_counter()
+            _r = _orig_set(values, *a, **kw)
+            _elapsed_ms = (_perf_time.perf_counter() - _t0) * 1000
+            _cmds = _perf_state["cmds"]
+            _tot_ms = sum(d for _, d in _cmds) * 1000
+            _n = len(_cmds)
+            _perf_state["cycle_id"] += 1
+            _cid = _perf_state["cycle_id"]
+            print(
+                f"[perf] cycle {_cid}: model.set({len(values)} inputs) = {_elapsed_ms:.1f}ms; "
+                f"tao.cmd N={_n} total={_tot_ms:.1f}ms "
+                f"mean={_tot_ms / _n if _n else 0:.1f}ms "
+                f"max={(max(d for _, d in _cmds) * 1000) if _cmds else 0:.1f}ms",
+                file=sys.stderr, flush=True,
+            )
+            # Also log the slowest 3 individual cmds so we can spot outliers.
+            if _cmds:
+                _slow = sorted(_cmds, key=lambda x: -x[1])[:3]
+                for _c, _d in _slow:
+                    print(f"[perf] cycle {_cid}: slow cmd {_d*1000:.1f}ms  {_c!r}",
+                          file=sys.stderr, flush=True)
+            return _r
+        def _timed_get(names, *a, **kw):
+            _perf_state["cmds"].clear()
+            _t0 = _perf_time.perf_counter()
+            _r = _orig_get(names, *a, **kw)
+            _elapsed_ms = (_perf_time.perf_counter() - _t0) * 1000
+            _n = len(_perf_state["cmds"])
+            _tot_ms = sum(d for _, d in _perf_state["cmds"]) * 1000
+            print(
+                f"[perf] cycle {_perf_state['cycle_id']}: model.get({len(names) if hasattr(names, '__len__') else '?'} names) "
+                f"= {_elapsed_ms:.1f}ms; tao.cmd N={_n} total={_tot_ms:.1f}ms",
+                file=sys.stderr, flush=True,
+            )
+            return _r
+        model.set = _timed_set
+        model.get = _timed_get
+        print("[perf] model.set / model.get wrapped", file=sys.stderr, flush=True)
 
     config = Runner.generate_config(model, remote_inputs=remote_inputs)
     config["protocol"] = ["pva"]

@@ -45,7 +45,12 @@ configMapGenerator:
       - PV_SUFFIX_ML=
       - PV_SUFFIX_PH=
       - PV_RENAMES={"sigma_z":"OTRS:IN20:571:ZRMS","norm_emit_x":"OTRS:IN20:571:EMITN_X","norm_emit_y":"OTRS:IN20:571:EMITN_Y"}
-      - LOG_LEVEL=INFO
+      # DEBUG turns on lume-pva's per-cycle "Model set() took N ms" / "Model get() took N ms"
+      # / "PV update loop took N ms" logs. Combined with PERF_INSTRUMENT=1 (run.py wraps
+      # Tao.cmd + model.set/get), this gives us a full per-cycle timing breakdown to
+      # answer "where does the ~600ms/cycle go?". Turn back to INFO after diagnosis.
+      - LOG_LEVEL=DEBUG
+      - PERF_INSTRUMENT=1
       - LCLS_LATTICE=/opt/lcls-lattice
       - KMP_DUPLICATE_LIB_OK=TRUE
       - OMP_NUM_THREADS=1
