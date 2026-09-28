@@ -6,6 +6,9 @@ Configurable via environment variables:
     N_PARTICLES    - Number of particles (default: 10000)
     LOG_LEVEL      - Logging level (default: INFO)
     REMOTE_INPUTS  - Read inputs from prod EPICS (default: false)
+    REMOTE_MODEL_MODE - "snapshot" (default) or "continuous". snapshot: pvget every input
+                        each cycle (coherent, slow). continuous: monitor-driven async
+                        updates (~10x faster per cycle, inputs arrive independently).
     PV_SUFFIX      - Suffix appended to served PV names (default: none)
     PV_SUFFIX_ML   - Suffix for ML model outputs in staged models (default: none)
     PV_SUFFIX_PH   - Suffix for physics model outputs in staged models (default: none)
@@ -252,8 +255,6 @@ def main():
     mem_log_interval_s = int(os.environ.get("MEM_LOG_INTERVAL_S", "300"))
     remote_inputs     = os.environ.get("REMOTE_INPUTS", "").lower() in ("true", "1", "yes")
     pv_suffix         = os.environ.get("PV_SUFFIX", "")
-    pv_suffix_ml      = os.environ.get("PV_SUFFIX_ML", "")
-    pv_suffix_ph      = os.environ.get("PV_SUFFIX_PH", "")
     pv_renames        = json.loads(os.environ.get("PV_RENAMES", "{}"))
     metrics_port      = int(os.environ.get("METRICS_PORT", "9090"))
     top_n             = int(os.environ.get("MEMRAY_TOP_N", "10"))
@@ -261,6 +262,15 @@ def main():
     recycle_enabled   = os.environ.get("TAO_RECYCLE_ENABLED", "true").lower() in ("true", "1", "yes")
     recycle_growth_mb = float(os.environ.get("TAO_RECYCLE_RSS_GROWTH_MB", "400"))
     recycle_max_cycles = int(os.environ.get("TAO_RECYCLE_MAX_CYCLES", "0"))
+    # snapshot: take_snapshot() serially pvget()s every remote input each cycle. Slow but
+    # coherent -- all inputs are latched together, which matters for whole-beamline sims.
+    # continuous: inputs subscribed via monitor at startup, updates arrive async. Much faster
+    # per cycle (no per-cycle network get storm), but inputs arrive independently.
+    remote_model_mode = os.environ.get("REMOTE_MODEL_MODE", "snapshot").strip().lower()
+    # Ephemeral perf instrumentation: wrap RecyclableTao.cmd + model.set/get to log
+    # per-cycle wall-clock timing. Answers "where is the ~600ms model cycle going?".
+    # Enable by setting PERF_INSTRUMENT=1. Remove once perf work is complete.
+    perf_instrument = os.environ.get("PERF_INSTRUMENT", "").lower() in ("true", "1", "yes")
 
     import logging
     logging.basicConfig(level=getattr(logging, log_level))
@@ -275,6 +285,7 @@ def main():
         get_facet_bmad_model,
         get_facet_staged_model,
     )
+    from virtual_accelerator.models.special import get_cu_hxr_rmat
 
     # libtao leaks ~89 KB of native heap per beam track (upstream bmad bug). Running Tao in
     # a child process lets us respawn it to reclaim that memory. virtual_accelerator's
@@ -295,6 +306,11 @@ def main():
         model = get_facet_bmad_model(end_element=end_element, track_beam=True)
     elif model_name == "facet_staged":
         model = get_facet_staged_model(end_element=end_element, n_particles=n_particles)
+    elif model_name == "cu_hxr_rmat":
+        start_element = os.environ.get("START_ELEMENT")
+        if not start_element:
+            raise ValueError("cu_hxr_rmat requires START_ELEMENT")
+        model = get_cu_hxr_rmat(start_element=start_element, end_element=end_element)
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
@@ -331,6 +347,71 @@ def main():
         on_failure=_VA_TAO_RECYCLE_FAIL.inc,
     )
 
+    if perf_instrument:
+        import time as _perf_time
+        _perf_state = {"cmds": [], "cycle_id": 0}
+
+        # Wrap Tao.cmd on the live subprocess so we count and time every pipe RTT.
+        _bmad_stage = tao_recycle.find_bmad_model(model)
+        if _bmad_stage is None:
+            print("[perf] WARNING: no Bmad model; Tao.cmd instrumentation disabled",
+                  file=sys.stderr, flush=True)
+        else:
+            _tao_instance = _bmad_stage.tao
+            _orig_cmd = _tao_instance.cmd
+            def _timed_cmd(cmd, *a, **kw):
+                _t0 = _perf_time.perf_counter()
+                _r = _orig_cmd(cmd, *a, **kw)
+                _perf_state["cmds"].append((cmd[:60], _perf_time.perf_counter() - _t0))
+                return _r
+            _tao_instance.cmd = _timed_cmd
+            print("[perf] Tao.cmd wrapped; per-cycle summary will follow each model.set()",
+                  file=sys.stderr, flush=True)
+
+        # Wrap model.set / model.get to bound one "cycle" and flush the tao.cmd tally.
+        _orig_set = model.set
+        _orig_get = model.get
+        def _timed_set(values, *a, **kw):
+            _perf_state["cmds"].clear()
+            _t0 = _perf_time.perf_counter()
+            _r = _orig_set(values, *a, **kw)
+            _elapsed_ms = (_perf_time.perf_counter() - _t0) * 1000
+            _cmds = _perf_state["cmds"]
+            _tot_ms = sum(d for _, d in _cmds) * 1000
+            _n = len(_cmds)
+            _perf_state["cycle_id"] += 1
+            _cid = _perf_state["cycle_id"]
+            print(
+                f"[perf] cycle {_cid}: model.set({len(values)} inputs) = {_elapsed_ms:.1f}ms; "
+                f"tao.cmd N={_n} total={_tot_ms:.1f}ms "
+                f"mean={_tot_ms / _n if _n else 0:.1f}ms "
+                f"max={(max(d for _, d in _cmds) * 1000) if _cmds else 0:.1f}ms",
+                file=sys.stderr, flush=True,
+            )
+            # Also log the slowest 3 individual cmds so we can spot outliers.
+            if _cmds:
+                _slow = sorted(_cmds, key=lambda x: -x[1])[:3]
+                for _c, _d in _slow:
+                    print(f"[perf] cycle {_cid}: slow cmd {_d*1000:.1f}ms  {_c!r}",
+                          file=sys.stderr, flush=True)
+            return _r
+        def _timed_get(names, *a, **kw):
+            _perf_state["cmds"].clear()
+            _t0 = _perf_time.perf_counter()
+            _r = _orig_get(names, *a, **kw)
+            _elapsed_ms = (_perf_time.perf_counter() - _t0) * 1000
+            _n = len(_perf_state["cmds"])
+            _tot_ms = sum(d for _, d in _perf_state["cmds"]) * 1000
+            print(
+                f"[perf] cycle {_perf_state['cycle_id']}: model.get({len(names) if hasattr(names, '__len__') else '?'} names) "
+                f"= {_elapsed_ms:.1f}ms; tao.cmd N={_n} total={_tot_ms:.1f}ms",
+                file=sys.stderr, flush=True,
+            )
+            return _r
+        model.set = _timed_set
+        model.get = _timed_get
+        print("[perf] model.set / model.get wrapped", file=sys.stderr, flush=True)
+
     config = Runner.generate_config(model, remote_inputs=remote_inputs)
     config["protocol"] = ["pva"]
     config["update_rate"] = 0
@@ -341,17 +422,12 @@ def main():
 
     skip_suffix = {"name"}
 
-    if (pv_suffix_ml or pv_suffix_ph) and hasattr(model, 'lume_model_instances'):
-        ml_vars = set(model.lume_model_instances[0].supported_variables)
-        for k, v in config['variables'].items():
-            if v['mode'] == 'ro' and k not in skip_suffix:
-                v['pv'] = v['pv'] + (pv_suffix_ml if k in ml_vars else pv_suffix_ph)
-    elif pv_suffix:
+    if pv_suffix:
         for k, v in config['variables'].items():
             if v['mode'] == 'ro' and k not in skip_suffix:
                 v['pv'] = v['pv'] + pv_suffix
 
-    config["remote_model_mode"] = "snapshot"
+    config["remote_model_mode"] = remote_model_mode
 
     for k, v in config["variables"].items():
         if k == "track_type" or k.endswith(":BDES"):
@@ -365,7 +441,11 @@ def main():
         start_http_server(metrics_port)
         print(f"[metrics] Prometheus HTTP server on :{metrics_port}/metrics", file=sys.stderr, flush=True)
 
-    if remote_inputs:
+    # In continuous mode, lume-pva subscribes to input PVs via monitors at startup and
+    # take_snapshot() is unused -- the runner is driven by _monitor_callback pushing to
+    # the queue asynchronously. Starting snapshot_loop here would just enqueue duplicate
+    # data every 100ms and burn CPU. Skip it.
+    if remote_inputs and remote_model_mode == "snapshot":
         import gc
         import time as _time
         import torch

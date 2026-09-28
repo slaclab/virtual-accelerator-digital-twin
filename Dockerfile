@@ -1,6 +1,6 @@
 ARG PYTHON_VERSION=3.12
 ARG LCLS_LATTICE_REF=c6b8defbf2ba83bf8f5af70191c893de361657d1
-ARG VIRTUAL_ACCELERATOR_REF=fbd2f392809b59280bcb97da76ab11c0438dd915
+ARG VIRTUAL_ACCELERATOR_REF=aadb438756323733da319829b3ca34695f958925
 ARG DOCKER_PLATFORM=linux/amd64
 ARG EPICS_BASE_VERSION=R7.0.10
 ARG PVXS_REPO=https://github.com/bisegni/pvxs.git
@@ -16,6 +16,7 @@ ARG LUME_BASE_VERSION=0.5.0
 FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS base
 ARG PYTHON_VERSION
 ARG LCLS_LATTICE_REF
+ARG VIRTUAL_ACCELERATOR_REF
 ARG EPICS_BASE_VERSION
 ARG PVXS_REPO
 ARG PVXS_BRANCH
@@ -139,7 +140,9 @@ RUN python -m pip install --upgrade setuptools wheel pyepics prometheus-client m
     && python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cpu torch \
     && git clone https://github.com/slaclab/virtual-accelerator.git /opt/virtual-accelerator \
     && cd /opt/virtual-accelerator \
+    && test -n "${VIRTUAL_ACCELERATOR_REF}" \
     && git checkout ${VIRTUAL_ACCELERATOR_REF} \
+    && git rev-parse HEAD \
     && python -m pip install -e ".[bmad,pva,surrogate]" \
     && cd /app \
     && python -m pip install --force-reinstall --no-deps \
