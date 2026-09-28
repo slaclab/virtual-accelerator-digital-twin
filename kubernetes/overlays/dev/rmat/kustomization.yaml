@@ -42,8 +42,6 @@ configMapGenerator:
       # range; strict input coherency isn't needed here (unlike whole-beamline sims).
       - REMOTE_MODEL_MODE=continuous
       - PV_SUFFIX=_LUME_PH2
-      - PV_SUFFIX_ML=
-      - PV_SUFFIX_PH=
       - PV_RENAMES={"sigma_z":"OTRS:IN20:571:ZRMS","norm_emit_x":"OTRS:IN20:571:EMITN_X","norm_emit_y":"OTRS:IN20:571:EMITN_Y"}
       # DEBUG turns on lume-pva's per-cycle "Model set() took N ms" / "Model get() took N ms"
       # / "PV update loop took N ms" logs. Combined with PERF_INSTRUMENT=1 (run.py wraps
@@ -64,11 +62,6 @@ configMapGenerator:
       - EPICS_CA_ADDR_LIST=
       - EPICS_CA_NAME_SERVERS=epics-proxy.epics-socat-proxy:5065
       - PYEPICS_LIBCA=/opt/conda/lib/libca.so
-      - MALLOC_ARENA_MAX=1
-      - MALLOC_MMAP_THRESHOLD_=131072
-      - LD_PRELOAD=
-      - MEM_LOG_INTERVAL_S=60
-      - MEMRAY_TOP_N=0
       # No beam tracking -> no libtao heap growth to reclaim. Recycling stays enabled at
       # defaults but never fires (RSS growth threshold never crossed).
       # Radiation off for rmat: transfer-matrix calc is a linear-optics operation, radiation

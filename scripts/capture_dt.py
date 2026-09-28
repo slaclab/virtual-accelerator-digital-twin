@@ -26,11 +26,7 @@ PV_RENAMES = {
     "norm_emit_y": "OTRS:IN20:571:EMITN_Y",
 }
 
-# Suffix scheme: single PV_SUFFIX (used by pure models like cu_hxr_bmad) takes
-# precedence. If unset, fall back to the ML/PH split used by staged models.
 PV_SUFFIX = os.environ.get("PV_SUFFIX", "")
-PV_SUFFIX_ML = os.environ.get("PV_SUFFIX_ML", "_CU_HXR_LUME_ML_DT")
-PV_SUFFIX_PH = os.environ.get("PV_SUFFIX_PH", "_CU_HXR_LUME_PH_DT")
 DT_MODEL = os.environ.get("DT_MODEL", "cu_hxr_staged")
 
 
@@ -124,17 +120,8 @@ def main():
     output_names = [n for n in output_names
                     if not any(s in n for s in SKIP_SUBSTRINGS)]
 
-    # Build output PV name mapping. Single PV_SUFFIX wins if set (pure models);
-    # otherwise split on ML vs physics variables (staged models).
-    if PV_SUFFIX:
-        output_pv_map = {name: PV_RENAMES.get(name, name) + PV_SUFFIX
-                         for name in output_names}
-    else:
-        ml_vars = set(model.lume_model_instances[0].supported_variables)
-        output_pv_map = {}
-        for name in output_names:
-            pv_name = PV_RENAMES.get(name, name)
-            output_pv_map[name] = pv_name + (PV_SUFFIX_ML if name in ml_vars else PV_SUFFIX_PH)
+    output_pv_map = {name: PV_RENAMES.get(name, name) + PV_SUFFIX
+                     for name in output_names}
 
     # Contexts
     input_ctx = Context()

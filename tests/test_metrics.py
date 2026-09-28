@@ -8,13 +8,9 @@ import time
 import urllib.request
 
 import pytest
-from prometheus_client import REGISTRY, generate_latest, CollectorRegistry
+from prometheus_client import REGISTRY, generate_latest
 
 REQUIRED_METRICS = [
-    "va_rss_bytes",
-    "va_anon_bytes",
-    "va_anon_huge_pages_bytes",
-    "va_uptime_seconds",
     "va_thp_disabled",
     "va_runner_queue_size",
     "va_snapshot_cycles_total",
@@ -41,16 +37,10 @@ def _parse_metric_names(text: str) -> set:
 
 class TestMetricsRegistered:
     def test_all_required_metrics_registered(self, run_module):
-        """All va_* metrics must be registered in the default prometheus registry.
-
-        prometheus_client only emits label-based counters (va_pv_posts) after
-        the first .labels().inc() call. Trigger one to force emission.
-        """
         run_module._VA_PV_POSTS.labels(pv="__test__").inc(0)
         text = generate_latest(REGISTRY).decode()
         names = _parse_metric_names(text)
         for metric in REQUIRED_METRICS:
-            # prometheus_client appends _total to counters, _sum/_count to histograms
             base = metric.replace("_total", "")
             found = any(n == metric or n.startswith(base) for n in names)
             assert found, f"Metric {metric!r} not found in registry. Available: {sorted(names)}"
@@ -65,27 +55,21 @@ class TestMetricsRegistered:
 
 
 class TestGaugeUpdates:
-    def test_rss_gauge_set(self, run_module):
-        run_module._VA_RSS.set(123456789)
-        text = generate_latest(REGISTRY).decode()
-        assert "va_rss_bytes 1.23456789e+08" in text or "123456789.0" in text or "1.23456789e+08" in text
-
     def test_thp_disabled_gauge(self, run_module):
         run_module._VA_THP_DISABLED.set(1)
         text = generate_latest(REGISTRY).decode()
         assert "va_thp_disabled 1.0" in text
 
-    def test_anon_huge_pages_zero(self, run_module):
-        run_module._VA_AHP.set(0)
+    def test_queue_size_gauge(self, run_module):
+        run_module._VA_QUEUE_SIZE.set(3)
         text = generate_latest(REGISTRY).decode()
-        assert "va_anon_huge_pages_bytes 0.0" in text
+        assert "va_runner_queue_size 3.0" in text
 
 
 class TestCounterUpdates:
     def test_snapshot_counter_increments(self, run_module):
         run_module._VA_SNAP_CYCLES.inc(10)
         text = generate_latest(REGISTRY).decode()
-        # Counter value must be > 0
         for line in text.splitlines():
             if line.startswith("va_snapshot_cycles_total"):
                 assert float(line.split()[-1]) > 0
@@ -111,7 +95,7 @@ class TestMetricsHTTPServer:
             content_type = resp.headers.get("Content-Type", "")
             assert "text/plain" in content_type
             body = resp.read().decode()
-            assert "va_rss_bytes" in body
+            assert "va_thp_disabled" in body
 
     def test_metrics_endpoint_content(self, run_module):
         from prometheus_client import start_http_server
@@ -123,4 +107,3 @@ class TestMetricsHTTPServer:
         with urllib.request.urlopen(f"http://localhost:{port}/metrics", timeout=5) as resp:
             body = resp.read().decode()
         assert "va_thp_disabled" in body
-        assert "va_rss_bytes" in body

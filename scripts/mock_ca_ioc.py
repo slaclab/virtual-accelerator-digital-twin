@@ -69,7 +69,7 @@ _IMAGE_COLS = 50
 
 def _device_prefix(name: str) -> str:
     """Extract device prefix (part before first field separator after last colon block)."""
-    # e.g. "QUAD:IN20:631:BCTRL_CU_HXR_LUME_PH_DT" → "QUAD:IN20:631"
+    # e.g. "QUAD:IN20:631:BCTRL_LUME_SM1" → "QUAD:IN20:631"
     parts = name.split(":")
     if len(parts) >= 3:
         return ":".join(parts[:3])
@@ -78,8 +78,7 @@ def _device_prefix(name: str) -> str:
 
 def _field_base(name: str) -> str:
     """Return the field portion without suffix, e.g. 'BCTRL', 'Image:ArrayData', 'mat6'."""
-    # Strip known environment suffixes
-    for sfx in ("_CU_HXR_LUME_ML_DT", "_CU_HXR_LUME_PH_DT", "_DEV_LUME_DT"):
+    for sfx in ("_LUME_SM1", "_LUME_PH1", "_LUME_PH2", "_DEV_LUME_DT"):
         if name.endswith(sfx):
             name = name[: -len(sfx)]
             break
