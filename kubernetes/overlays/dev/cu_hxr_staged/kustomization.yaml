@@ -23,6 +23,7 @@ configMapGenerator:
     behavior: create
     literals:
       - MODEL=cu_hxr_staged
+      - DT_CONTEXT=cu_hxr_staged @ OTR4
       - REMOTE_INPUTS=true
       - PV_SUFFIX=_LUME_SM1
       - PV_RENAMES={"sigma_z":"OTRS:IN20:571:ZRMS","norm_emit_x":"OTRS:IN20:571:EMITN_X","norm_emit_y":"OTRS:IN20:571:EMITN_Y"}

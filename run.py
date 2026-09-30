@@ -12,6 +12,8 @@ Configurable via environment variables:
     PV_SUFFIX      - Suffix appended to served PV names (default: none)
     PV_RENAMES     - JSON dict of PV name renames applied before suffix (default: none)
     METRICS_PORT   - Port for Prometheus /metrics endpoint (default: 9090, 0=disabled)
+    DT_CONTEXT     - Deployment context appended in brackets to each PV's description
+                     (default: "<model> @ <end_element>", empty string disables suffix)
 """
 
 import ctypes
@@ -294,6 +296,17 @@ def main():
     for k, v in config["variables"].items():
         if k == "track_type" or k.endswith(":BDES"):
             v["mode"] = "rw"
+
+    # Append deployment context to each Variable's description so clients can tell which
+    # DT instance produced a given PV. lume-pva reads description off the Variable object
+    # itself (not the config dict), so mutate the variables directly.
+    dt_context = os.environ.get("DT_CONTEXT")
+    if dt_context is None:
+        dt_context = f"{model_name} @ {end_element}"
+    if dt_context:
+        for variable in model.supported_variables.values():
+            if getattr(variable, "description", ""):
+                variable.description = f"{variable.description} [{dt_context}]"
 
     runner = Runner(model, config=config)
 

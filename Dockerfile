@@ -1,6 +1,7 @@
 ARG PYTHON_VERSION=3.12
 ARG LCLS_LATTICE_REF=c6b8defbf2ba83bf8f5af70191c893de361657d1
-ARG VIRTUAL_ACCELERATOR_REF=aadb438756323733da319829b3ca34695f958925
+ARG VIRTUAL_ACCELERATOR_REPO=https://github.com/bhardwaj-gopika/virtual-accelerator.git
+ARG VIRTUAL_ACCELERATOR_REF=9311fd05099f0f37f061e8fe93de951d6040ed3d
 ARG DOCKER_PLATFORM=linux/amd64
 ARG EPICS_BASE_VERSION=R7.0.10
 ARG PVXS_REPO=https://github.com/bisegni/pvxs.git
@@ -12,6 +13,7 @@ ARG LUME_BASE_VERSION=0.6.0
 FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS base
 ARG PYTHON_VERSION
 ARG LCLS_LATTICE_REF
+ARG VIRTUAL_ACCELERATOR_REPO
 ARG VIRTUAL_ACCELERATOR_REF
 ARG EPICS_BASE_VERSION
 ARG PVXS_REPO
@@ -122,7 +124,7 @@ RUN python -m pip install --no-cache-dir setuptools_dso cython nose2 ply numpy \
 
 RUN python -m pip install --upgrade setuptools wheel pyepics prometheus-client \
     && python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cpu torch \
-    && git clone https://github.com/slaclab/virtual-accelerator.git /opt/virtual-accelerator \
+    && git clone ${VIRTUAL_ACCELERATOR_REPO} /opt/virtual-accelerator \
     && cd /opt/virtual-accelerator \
     && test -n "${VIRTUAL_ACCELERATOR_REF}" \
     && git checkout ${VIRTUAL_ACCELERATOR_REF} \

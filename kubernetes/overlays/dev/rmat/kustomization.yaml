@@ -35,6 +35,7 @@ configMapGenerator:
       - MODEL=cu_hxr_rmat
       - START_ELEMENT=WS27644
       - END_ELEMENT=WS28144
+      - DT_CONTEXT=cu_hxr_rmat @ WS27644->WS28144
       - REMOTE_INPUTS=true
       # Monitor-driven async input updates. Snapshot mode's per-cycle pvget() storm was
       # the dominant contributor to the ~700ms rmat update time (~40-60 remote input PVs
