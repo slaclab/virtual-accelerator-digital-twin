@@ -7,7 +7,7 @@ generatorOptions:
   disableNameSuffixHash: true
 images:
   - name: ghcr.io/slaclab/virtual-accelerator-digital-twin
-    newTag: feature-prometheus
+    newTag: pv_descriptions
 
 patches:
   - patch: |-
