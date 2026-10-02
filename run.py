@@ -1,7 +1,8 @@
 """Entry point for the virtual accelerator digital twin container.
 
 Configurable via environment variables:
-    MODEL          - Model to run (default: cu_hxr_bmad)
+    MODEL          - Registry model name or chain alias, or "cu_hxr_rmat"
+                     (default: bmad_cu_hxr)
     END_ELEMENT    - Lattice end element (default: OTR4)
     N_PARTICLES    - Number of particles (default: 10000)
     LOG_LEVEL      - Logging level (default: INFO)
@@ -12,6 +13,7 @@ Configurable via environment variables:
     PV_SUFFIX      - Suffix appended to served PV names (default: none)
     PV_RENAMES     - JSON dict of PV name renames applied before suffix (default: none)
     METRICS_PORT   - Port for Prometheus /metrics endpoint (default: 9090, 0=disabled)
+    MEM_LOG_INTERVAL_S - Memory log interval in seconds (default: 300)
 """
 
 import ctypes
@@ -30,8 +32,6 @@ from prometheus_client import (
     start_http_server,
 )
 
-import tao_recycle
-
 # ---------------------------------------------------------------------------
 # Prometheus metrics — declared at module level, one registry per process
 # ---------------------------------------------------------------------------
@@ -47,16 +47,9 @@ _VA_SNAP_WAIT       = Histogram("va_snapshot_queue_wait_seconds",
                                 "Time waiting for queue to drain before take_snapshot()",
                                 buckets=[0, .001, .005, .01, .05, .1, .5, 1.0, 5.0])
 _VA_GC_COLLECT      = Counter("va_gc_collects",          "GC+malloc_trim invocations")
+_VA_RSS             = Gauge("va_rss_bytes",              "Process RSS in bytes")
 
 _VA_PV_POSTS        = Counter("va_pv_posts",             "SharedPV post() calls", ["pv"])
-
-_VA_TAO_RECYCLES    = Counter("va_tao_recycles",         "Tao subprocess respawns")
-_VA_TAO_RECYCLE_FAIL = Counter("va_tao_recycle_failures", "Respawns where state restore could not be verified")
-_VA_TAO_RECYCLE_DUR = Histogram("va_tao_recycle_duration_seconds",
-                                "Time to respawn Tao and replay configuration",
-                                buckets=[.5, 1.0, 2.0, 3.0, 5.0, 10.0, 30.0])
-_VA_TAO_MEM_AFTER   = Gauge("va_tao_mem_after_recycle_bytes",
-                            "Container memory immediately after the last respawn")
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +84,66 @@ def _disable_thp() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Memory helpers
+# ---------------------------------------------------------------------------
+
+def _read_smaps_rollup() -> dict:
+    """Read key fields from /proc/self/smaps_rollup. Returns empty dict on failure."""
+    fields = {}
+    try:
+        with open("/proc/self/smaps_rollup") as f:
+            for line in f:
+                if line.startswith("Rss:"):
+                    fields["Rss"] = int(line.split()[1])  # kB
+    except OSError:
+        pass
+    return fields
+
+
+def _log_memory(label: str) -> None:
+    """Log RSS to stderr and update the Prometheus gauge."""
+    m = _read_smaps_rollup()
+    if not m:
+        print(f"[mem] {label}: smaps unavailable", file=sys.stderr)
+        return
+    rss_mb = m.get("Rss", 0) / 1024
+    print(f"[mem] {label}: RSS={rss_mb:.1f}MB", file=sys.stderr, flush=True)
+    _VA_RSS.set(m.get("Rss", 0) * 1024)
+
+
+# ---------------------------------------------------------------------------
+# Background mem logger
+# ---------------------------------------------------------------------------
+
+def _start_mem_logger(interval_s: int) -> None:
+    """Background thread: log RSS and update the gauge every interval_s seconds."""
+    import time
+
+    def _loop():
+        t0 = time.monotonic()
+        while True:
+            time.sleep(interval_s)
+            elapsed = time.monotonic() - t0
+            _log_memory(f"t={elapsed / 60:.1f}min")
+
+    threading.Thread(target=_loop, daemon=True, name="mem-logger").start()
+
+
+# ---------------------------------------------------------------------------
+# Model helpers
+# ---------------------------------------------------------------------------
+
+def _find_bmad_model(model):
+    """Return the LUMEBmadModel, whether wrapped in a StagedModel or used directly."""
+    if hasattr(model, "tao"):
+        return model
+    for stage in getattr(model, "lume_model_instances", []) or []:
+        if hasattr(stage, "tao"):
+            return stage
+    return None
+
+
+# ---------------------------------------------------------------------------
 # PV post instrumentation
 # ---------------------------------------------------------------------------
 
@@ -113,25 +166,24 @@ def _instrument_pv_posts(runner) -> None:
 
 def main():
     _disable_thp()
+    _log_memory("startup")
 
-    model_name        = os.environ.get("MODEL", "cu_hxr_bmad")
+    model_name        = os.environ.get("MODEL", "bmad_cu_hxr")
     end_element       = os.environ.get("END_ELEMENT", "OTR4")
     n_particles       = int(os.environ.get("N_PARTICLES", "10000"))
     log_level         = os.environ.get("LOG_LEVEL", "INFO")
+    mem_log_interval_s = int(os.environ.get("MEM_LOG_INTERVAL_S", "300"))
     remote_inputs     = os.environ.get("REMOTE_INPUTS", "").lower() in ("true", "1", "yes")
     pv_suffix         = os.environ.get("PV_SUFFIX", "")
     pv_renames        = json.loads(os.environ.get("PV_RENAMES", "{}"))
     metrics_port      = int(os.environ.get("METRICS_PORT", "9090"))
     radiation_fluct   = os.environ.get("BMAD_RADIATION_FLUCTUATIONS", "").strip().lower()
-    recycle_enabled   = os.environ.get("TAO_RECYCLE_ENABLED", "true").lower() in ("true", "1", "yes")
-    recycle_growth_mb = float(os.environ.get("TAO_RECYCLE_RSS_GROWTH_MB", "400"))
-    recycle_max_cycles = int(os.environ.get("TAO_RECYCLE_MAX_CYCLES", "0"))
     # snapshot: take_snapshot() serially pvget()s every remote input each cycle. Slow but
     # coherent -- all inputs are latched together, which matters for whole-beamline sims.
     # continuous: inputs subscribed via monitor at startup, updates arrive async. Much faster
     # per cycle (no per-cycle network get storm), but inputs arrive independently.
     remote_model_mode = os.environ.get("REMOTE_MODEL_MODE", "snapshot").strip().lower()
-    # Ephemeral perf instrumentation: wrap RecyclableTao.cmd + model.set/get to log
+    # Ephemeral perf instrumentation: wrap Tao.cmd + model.set/get to log
     # per-cycle wall-clock timing. Answers "where is the ~600ms model cycle going?".
     # Enable by setting PERF_INSTRUMENT=1. Remove once perf work is complete.
     perf_instrument = os.environ.get("PERF_INSTRUMENT", "").lower() in ("true", "1", "yes")
@@ -141,80 +193,58 @@ def main():
     logging.getLogger("pytao").setLevel(logging.WARNING)
 
     from lume_pva.runner import Runner
-    from virtual_accelerator.models.cu_hxr import (
-        get_cu_hxr_bmad_model,
-        get_cu_hxr_staged_model,
-    )
-    from virtual_accelerator.models.facet2 import (
-        get_facet_bmad_model,
-        get_facet_staged_model,
-    )
-    from virtual_accelerator.models.special import get_cu_hxr_rmat
+    from virtual_accelerator.registry import _CHAIN_ALIASES, get_model
+    from virtual_accelerator.registry.models import MODELS
 
-    # libtao leaks ~89 KB of native heap per beam track (upstream bmad bug). Running Tao in
-    # a child process lets us respawn it to reclaim that memory. virtual_accelerator's
-    # build_bmad_model does a function-local `from pytao import Tao`, so the name resolves
-    # off the pytao module at call time -- substituting it here is enough, and avoids
-    # vendoring a patched copy of factory.py. RecyclableTao subclasses SubprocessTao which
-    # subclasses Tao, so isinstance checks and type annotations still hold.
-    if recycle_enabled:
-        import pytao
-        pytao.Tao = tao_recycle.make_recyclable_tao_class()
-        print("[recycle] pytao.Tao -> RecyclableTao (SubprocessTao)", file=sys.stderr, flush=True)
-
-    if model_name == "cu_hxr_bmad":
-        model = get_cu_hxr_bmad_model(end_element=end_element, track_beam=True)
-    elif model_name == "cu_hxr_staged":
-        model = get_cu_hxr_staged_model(end_element=end_element, n_particles=n_particles)
-    elif model_name == "facet_bmad":
-        model = get_facet_bmad_model(end_element=end_element, track_beam=True)
-    elif model_name == "facet_staged":
-        model = get_facet_staged_model(end_element=end_element, n_particles=n_particles)
-    elif model_name == "cu_hxr_rmat":
+    if model_name == "cu_hxr_rmat":
         start_element = os.environ.get("START_ELEMENT")
         if not start_element:
             raise ValueError("cu_hxr_rmat requires START_ELEMENT")
+        from virtual_accelerator.models.special import get_cu_hxr_rmat
         model = get_cu_hxr_rmat(start_element=start_element, end_element=end_element)
     else:
-        raise ValueError(f"Unknown model: {model_name}")
+        # Chain aliases resolve to a (upstream, downstream) pair; probe the
+        # downstream stage so end_ele / track_beam get routed correctly.
+        stage_names = _CHAIN_ALIASES.get(model_name, (model_name,))
+        try:
+            entries = [MODELS[name] for name in stage_names]
+        except KeyError:
+            raise ValueError(f"Unknown model: {model_name}")
 
-    # Radiation is one of the two conditions gating the libtao rad_map leak
-    # (bmad-ecosystem#2177 -- the leak needs radiation AND comb saving; we need comb saving).
-    # cu_hxr tao.init sets radiation_fluctuations_on = T, so overriding it to F is a candidate
-    # fix at source rather than containment. This is a reversible diagnostic: radiation is
-    # expected to be needed again, so recycling stays enabled either way. Unset leaves the
-    # lattice value untouched.
+        all_params = {p for e in entries for p in e.params}
+        all_shared = {p for e in entries for p in e.shared_params}
+
+        kwargs = {}
+        if any(e.end_param is not None for e in entries):
+            kwargs["end_ele"] = end_element
+        if "n_particles" in all_params or "n_particles" in all_shared:
+            kwargs["n_particles"] = n_particles
+        if "track_beam" in all_params and len(entries) == 1:
+            kwargs["track_beam"] = True
+        model = get_model(model_name, **kwargs)
+
+    _log_memory("model-loaded")
+
+    # cu_hxr tao.init sets radiation_fluctuations_on = T; override lets us turn it off for
+    # linear-optics models (e.g. rmat) where radiation fluctuations are unwanted noise.
+    # Unset leaves the lattice value untouched.
     if radiation_fluct:
-        bmad_stage = tao_recycle.find_bmad_model(model)
+        bmad_stage = _find_bmad_model(model)
         if bmad_stage is None:
             print("[radiation] WARNING no Bmad model found; override NOT applied",
                   file=sys.stderr, flush=True)
         else:
             flag = "T" if radiation_fluct in ("on", "true", "1", "yes") else "F"
-            # Issued through tao.cmd so RecyclableTao records it for replay after a respawn.
             bmad_stage.tao.cmd(f"set bmad_com radiation_fluctuations_on = {flag}")
             print(f"[radiation] override: bmad_com radiation_fluctuations_on = {flag} "
                   f"(lattice default is T)", file=sys.stderr, flush=True)
-
-    tao_recycle.install_recycling(
-        model,
-        enabled=recycle_enabled,
-        growth_mb=recycle_growth_mb,
-        max_cycles=recycle_max_cycles,
-        on_recycle=lambda duration, mem_bytes: (
-            _VA_TAO_RECYCLES.inc(),
-            _VA_TAO_RECYCLE_DUR.observe(duration),
-            _VA_TAO_MEM_AFTER.set(mem_bytes),
-        ),
-        on_failure=_VA_TAO_RECYCLE_FAIL.inc,
-    )
 
     if perf_instrument:
         import time as _perf_time
         _perf_state = {"cmds": [], "cycle_id": 0}
 
         # Wrap Tao.cmd on the live subprocess so we count and time every pipe RTT.
-        _bmad_stage = tao_recycle.find_bmad_model(model)
+        _bmad_stage = _find_bmad_model(model)
         if _bmad_stage is None:
             print("[perf] WARNING: no Bmad model; Tao.cmd instrumentation disabled",
                   file=sys.stderr, flush=True)
@@ -360,6 +390,9 @@ def main():
                         _time.sleep(sleep)
 
         threading.Thread(target=snapshot_loop, args=(runner,), daemon=True).start()
+
+    _log_memory("runner-started")
+    _start_mem_logger(interval_s=mem_log_interval_s)
 
     runner.run()
 
