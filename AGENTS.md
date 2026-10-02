@@ -51,33 +51,9 @@ The `track_type` and `name` variables are also excluded (internal model variable
 
 Output PVs are suffixed to distinguish them from real machine PVs. The suffix is set per-overlay via `PV_SUFFIX` (e.g. `_LUME_SM1` for cu_hxr_staged, `_LUME_PH1` for bmad, `_LUME_PH2` for rmat). Only outputs (`mode='ro'`) get the suffix.
 
-### Tao subprocess recycling
+### Radiation fluctuations override
 
-`tao_recycle.py` bounds a libtao native heap leak by running Tao in a `pytao.SubprocessTao` child and respawning it periodically. Validated in-cluster: memory holds a sawtooth pattern instead of growing monotonically, at ~2.4s per respawn.
-
-How it hooks in: `virtual_accelerator/bmad/factory.py` does a *function-local* `from pytao import Tao`, so the name resolves off the `pytao` module at call time. `run.py` sets `pytao.Tao = RecyclableTao` before building the model.
-
-`RecyclableTao` records configuration commands as they are issued (prefixes `set beam `, `set beam_init `, `set global track_type`, `set ele `), deduped by assignment target. On recycle it calls `close_subprocess()`, `init()`, then replays that log.
-
-**Fail-closed verification.** After every respawn `verify_state()` re-reads `track_type`, `track_start`, comb length, supported-variable count, and every writable control variable, comparing against a pre-recycle snapshot. Stochastic read-only outputs are deliberately not compared. Any mismatch calls `os._exit(90)` so Kubernetes restarts from known-good state.
-
-| Env var | Default | Meaning |
-|---------|---------|---------|
-| `BMAD_RADIATION_FLUCTUATIONS` | unset | `on`/`off` overrides the lattice default. Unset leaves it alone |
-| `TAO_RECYCLE_ENABLED` | `true` | Master switch; `false` restores in-process `Tao` |
-| `TAO_RECYCLE_RSS_GROWTH_MB` | `400` | Respawn once container memory grows this far past the post-startup baseline |
-| `TAO_RECYCLE_MAX_CYCLES` | `0` (off) | Cycle-count fallback trigger |
-
-The trigger reads **cgroup anonymous memory** (`anon` in `/sys/fs/cgroup/memory.stat`), not the parent's RSS and not `memory.current` (which also counts reclaimable page cache/slab).
-
-Metrics: `va_tao_recycles_total`, `va_tao_recycle_duration_seconds`, `va_tao_recycle_failures_total` (must stay 0), `va_tao_mem_after_recycle_bytes`.
-
-```bash
-kubectl logs deployment/virtual-accelerator -n virtual-accelerator | grep -E '\[recycle\]|\[recycle-assert\]'
-kubectl get pod <pod> -n virtual-accelerator -o jsonpath='{.status.containerStatuses[0].lastState}'  # exit 90 = restore failed
-```
-
-Unit tests: `tests/test_tao_recycle.py` (no pytao needed — covers the replay log, model discovery, and every verification failure mode).
+`BMAD_RADIATION_FLUCTUATIONS` (unset by default) overrides the lattice's `radiation_fluctuations_on` setting to `on`/`off`. cu_hxr's `tao.init` sets it `T` by default; models that don't need stochastic radiation noise (e.g. rmat's linear-optics calc) set it `off`. Unset leaves the lattice value untouched.
 
 ### EPICS connectivity
 
@@ -195,10 +171,6 @@ Manual trigger with "no-cache" checkbox available for forcing fresh dependency i
 | `va_snapshot_queue_wait_seconds` | Histogram | Time waiting for queue to drain |
 | `va_gc_collects_total` | Counter | GC+malloc_trim invocations |
 | `va_pv_posts_total{pv=...}` | Counter | SharedPV post() calls per PV |
-| `va_tao_recycles_total` | Counter | Tao subprocess respawns |
-| `va_tao_recycle_duration_seconds` | Histogram | Time per respawn |
-| `va_tao_recycle_failures_total` | Counter | Respawns where state restore failed |
-| `va_tao_mem_after_recycle_bytes` | Gauge | Container memory after last respawn |
 
 Kubernetes `ServiceMonitor` in `kubernetes/base/servicemonitor.yaml` scrapes every 30s.
 
