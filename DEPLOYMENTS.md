@@ -1,6 +1,14 @@
 # Deployments
 
-Active Digital Twin deployments and their output PV suffixes.
+## Models
+
+Active Digital Twin models and their output PV suffixes. This table is deployment-agnostic — the only reference needed if you just want to know what's running and how to find its PVs.
+
+| Model | Description | Output PV suffix |
+|-------|-------------|------------------|
+| `cu_hxr_staged` | CU injector ML surrogate → Bmad CU HXR physics, ends at OTR4 | `_LUME_SM1` |
+| `cu_hxr_bmad` | CU HXR physics only (Bmad), ends at OTR4 | `_LUME_PH1` |
+| `cu_hxr_rmat` | CU HXR transfer-matrix (linear optics) over WS27644–WS28144 | `_LUME_PH2` |
 
 ## Dev
 
@@ -28,6 +36,10 @@ Deployment names:
 - `cu_hxr_staged` / prod → `virtual-accelerator`
 - `cu_hxr_bmad` → `virtual-accelerator-bmad`
 - `cu_hxr_rmat` → `virtual-accelerator-rmat`
+
+## Next steps
+
+- Prod image tag should not be a generic/moving tag like `main`. Use the commit hash instead so prod deployments are pinned and reproducible.
 
 ## Verify
 

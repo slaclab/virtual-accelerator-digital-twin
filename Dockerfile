@@ -1,12 +1,13 @@
 ARG PYTHON_VERSION=3.12
 ARG LCLS_LATTICE_REF=c6b8defbf2ba83bf8f5af70191c893de361657d1
-ARG VIRTUAL_ACCELERATOR_REF=aadb438756323733da319829b3ca34695f958925
+ARG VIRTUAL_ACCELERATOR_REF=114170a35d0a558ea3f1681dea24ff377d574a32
 ARG DOCKER_PLATFORM=linux/amd64
 ARG EPICS_BASE_VERSION=R7.0.10
 ARG PVXS_REPO=https://github.com/bisegni/pvxs.git
 ARG PVXS_BRANCH=fix/pva-channel-cleanup
 ARG P4P_VERSION=4.2.2
 ARG LUME_BASE_VERSION=0.6.0
+ARG BMAD_VERSION=20260904.1
 
 # ── base: all deps, no app files ─────────────────────────────────────────────
 FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS base
@@ -18,6 +19,7 @@ ARG PVXS_REPO
 ARG PVXS_BRANCH
 ARG P4P_VERSION
 ARG LUME_BASE_VERSION
+ARG BMAD_VERSION
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -82,7 +84,7 @@ RUN arch="$(dpkg --print-architecture)" \
     && conda config --system --add channels conda-forge \
     && conda config --system --set channel_priority strict \
     # bmad pinned: 20260904.1 contains bmad-ecosystem#2176 (rad_map leak fix).
-    && conda install -y "python=${PYTHON_VERSION}" pip "bmad=20260904.1" pytao \
+    && conda install -y "python=${PYTHON_VERSION}" pip "bmad=${BMAD_VERSION}" pytao \
     && patchelf --clear-execstack /opt/conda/lib/libtao.so \
     && conda clean -afy
 
@@ -142,7 +144,6 @@ EXPOSE 9090/tcp
 # ── production: base + app files ─────────────────────────────────────────────
 FROM base AS production
 COPY run.py .
-COPY tao_recycle.py .
 COPY entrypoint.sh .
 COPY scripts/ ./scripts/
 
