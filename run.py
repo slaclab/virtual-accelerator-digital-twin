@@ -3,8 +3,8 @@
 Configurable via environment variables:
     MODEL          - Registry model name or chain alias, or "cu_hxr_rmat"
                      (default: bmad_cu_hxr)
-    END_ELEMENT    - Lattice end element (default: OTR4)
-    N_PARTICLES    - Number of particles (default: 10000)
+    END_ELEMENT    - Lattice end element (required for models with configurable extent)
+    N_PARTICLES    - Number of particles (required for particle-tracking models)
     LOG_LEVEL      - Logging level (default: INFO)
     REMOTE_INPUTS  - Read inputs from prod EPICS (default: false)
     REMOTE_MODEL_MODE - "snapshot" (default) or "continuous". snapshot: pvget every input
@@ -169,8 +169,8 @@ def main():
     _log_memory("startup")
 
     model_name        = os.environ.get("MODEL", "bmad_cu_hxr")
-    end_element       = os.environ.get("END_ELEMENT", "OTR4")
-    n_particles       = int(os.environ.get("N_PARTICLES", "10000"))
+    end_element       = os.environ.get("END_ELEMENT")
+    n_particles_env   = os.environ.get("N_PARTICLES")
     log_level         = os.environ.get("LOG_LEVEL", "INFO")
     mem_log_interval_s = int(os.environ.get("MEM_LOG_INTERVAL_S", "300"))
     remote_inputs     = os.environ.get("REMOTE_INPUTS", "").lower() in ("true", "1", "yes")
@@ -203,23 +203,23 @@ def main():
         from virtual_accelerator.models.special import get_cu_hxr_rmat
         model = get_cu_hxr_rmat(start_element=start_element, end_element=end_element)
     else:
-        # Chain aliases resolve to a (upstream, downstream) pair; probe the
-        # downstream stage so end_ele / track_beam get routed correctly.
+        # Chain aliases resolve to a (upstream, downstream) pair; a bare model
+        # name falls through as a 1-tuple. We pass every env-sourced kwarg
+        # through and let get_model reject mismatches, so a copy-pasted
+        # deployment spec surfaces loudly instead of being silently ignored.
         stage_names = _CHAIN_ALIASES.get(model_name, (model_name,))
         try:
             entries = [MODELS[name] for name in stage_names]
         except KeyError:
             raise ValueError(f"Unknown model: {model_name}")
 
-        all_params = {p for e in entries for p in e.params}
-        all_shared = {p for e in entries for p in e.shared_params}
-
         kwargs = {}
-        if any(e.end_param is not None for e in entries):
+        if end_element is not None:
             kwargs["end_ele"] = end_element
-        if "n_particles" in all_params or "n_particles" in all_shared:
-            kwargs["n_particles"] = n_particles
-        if "track_beam" in all_params and len(entries) == 1:
+        if n_particles_env is not None:
+            kwargs["n_particles"] = int(n_particles_env)
+        # get_model auto-forces track_beam on chain stages; single models need the push.
+        if len(entries) == 1 and "track_beam" in entries[0].params:
             kwargs["track_beam"] = True
         model = get_model(model_name, **kwargs)
 
