@@ -13,6 +13,9 @@ test = [
     "prometheus-client>=0.19",
 ]
 
+[tool.setuptools]
+py-modules = []
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
