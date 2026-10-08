@@ -1,51 +1,60 @@
 """Entry point for the virtual accelerator digital twin container.
 
 Configurable via environment variables:
-    MODEL          - Model to run (default: cu_hxr_bmad)
-    END_ELEMENT    - Lattice end element (default: OTR4)
-    N_PARTICLES    - Number of particles (default: 10000)
+    MODEL          - Registry model name or chain alias, or "cu_hxr_rmat"
+                     (default: bmad_cu_hxr)
+    END_ELEMENT    - Lattice end element (required for models with configurable extent)
+    N_PARTICLES    - Number of particles (required for particle-tracking models)
     LOG_LEVEL      - Logging level (default: INFO)
     REMOTE_INPUTS  - Read inputs from prod EPICS (default: false)
+    REMOTE_MODEL_MODE - "snapshot" (default) or "continuous". snapshot: pvget every input
+                        each cycle (coherent, slow). continuous: monitor-driven async
+                        updates (~10x faster per cycle, inputs arrive independently).
     PV_SUFFIX      - Suffix appended to served PV names (default: none)
-    PV_SUFFIX_ML   - Suffix for ML model outputs in staged models (default: none)
-    PV_SUFFIX_PH   - Suffix for physics model outputs in staged models (default: none)
     PV_RENAMES     - JSON dict of PV name renames applied before suffix (default: none)
+    METRICS_PORT   - Port for Prometheus /metrics endpoint (default: 9090, 0=disabled)
+    MEM_LOG_INTERVAL_S - Memory log interval in seconds (default: 300)
 """
 
+import ctypes
+import faulthandler
 import json
 import os
 import sys
-import ctypes
+import threading
 
-def _read_smaps_rollup() -> dict:
-    """Read key fields from /proc/self/smaps_rollup. Returns empty dict on failure."""
-    fields = {}
-    try:
-        with open("/proc/self/smaps_rollup") as f:
-            for line in f:
-                for key in ("Rss", "Anonymous", "AnonHugePages"):
-                    if line.startswith(f"{key}:"):
-                        fields[key] = int(line.split()[1])  # kB
-    except OSError:
-        pass
-    return fields
+faulthandler.enable()
+
+from prometheus_client import (
+    Counter,
+    Gauge,
+    Histogram,
+    start_http_server,
+)
+
+# ---------------------------------------------------------------------------
+# Prometheus metrics — declared at module level, one registry per process
+# ---------------------------------------------------------------------------
+
+_VA_THP_DISABLED    = Gauge("va_thp_disabled",           "1 if THP disabled successfully, 0 otherwise")
+_VA_QUEUE_SIZE      = Gauge("va_runner_queue_size",      "Current runner queue depth")
+
+_VA_SNAP_CYCLES     = Counter("va_snapshot_cycles",      "Total take_snapshot() calls")
+_VA_SNAP_DURATION   = Histogram("va_snapshot_duration_seconds",
+                                "Time per take_snapshot() call",
+                                buckets=[.005, .01, .025, .05, .1, .25, .5, 1.0])
+_VA_SNAP_WAIT       = Histogram("va_snapshot_queue_wait_seconds",
+                                "Time waiting for queue to drain before take_snapshot()",
+                                buckets=[0, .001, .005, .01, .05, .1, .5, 1.0, 5.0])
+_VA_GC_COLLECT      = Counter("va_gc_collects",          "GC+malloc_trim invocations")
+_VA_RSS             = Gauge("va_rss_bytes",              "Process RSS in bytes")
+
+_VA_PV_POSTS        = Counter("va_pv_posts",             "SharedPV post() calls", ["pv"])
 
 
-def _log_memory(label: str) -> None:
-    """Log RSS, anonymous heap, and AnonHugePages to stderr."""
-    m = _read_smaps_rollup()
-    if not m:
-        print(f"[mem] {label}: smaps unavailable", file=sys.stderr)
-        return
-    rss_mb = m.get("Rss", 0) / 1024
-    anon_mb = m.get("Anonymous", 0) / 1024
-    ahp_mb = m.get("AnonHugePages", 0) / 1024
-    print(
-        f"[mem] {label}: RSS={rss_mb:.1f}MB  anon={anon_mb:.1f}MB  AnonHugePages={ahp_mb:.1f}MB",
-        file=sys.stderr,
-        flush=True,
-    )
-
+# ---------------------------------------------------------------------------
+# THP
+# ---------------------------------------------------------------------------
 
 def _disable_thp() -> None:
     """Disable Transparent Huge Pages for this process.
@@ -59,129 +68,281 @@ def _disable_thp() -> None:
     PR_GET_THP_DISABLE = 42
     try:
         libc = ctypes.CDLL("libc.so.6", use_errno=True)
-
         before = libc.prctl(PR_GET_THP_DISABLE, 0, 0, 0, 0)
-        rc = libc.prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0)
-        after = libc.prctl(PR_GET_THP_DISABLE, 0, 0, 0, 0)
-
+        rc     = libc.prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0)
+        after  = libc.prctl(PR_GET_THP_DISABLE, 0, 0, 0, 0)
         if rc != 0:
             print(f"[thp] WARNING: prctl(PR_SET_THP_DISABLE) failed rc={rc}", file=sys.stderr)
+            _VA_THP_DISABLED.set(0)
         else:
             status = "disabled" if after == 1 else "STILL ENABLED (unexpected)"
-            print(
-                f"[thp] THP before={before} after={after} -> {status}",
-                file=sys.stderr,
-                flush=True,
-            )
+            print(f"[thp] THP before={before} after={after} -> {status}", file=sys.stderr, flush=True)
+            _VA_THP_DISABLED.set(1 if after == 1 else 0)
     except Exception as e:
         print(f"[thp] WARNING: could not disable THP: {e}", file=sys.stderr, flush=True)
+        _VA_THP_DISABLED.set(0)
 
 
-def _start_mem_logger(interval_s: int = 300) -> None:
-    """Background thread: log RSS/AnonHugePages every interval_s seconds."""
-    import threading
+# ---------------------------------------------------------------------------
+# Memory helpers
+# ---------------------------------------------------------------------------
+
+def _read_smaps_rollup() -> dict:
+    """Read key fields from /proc/self/smaps_rollup. Returns empty dict on failure."""
+    fields = {}
+    try:
+        with open("/proc/self/smaps_rollup") as f:
+            for line in f:
+                if line.startswith("Rss:"):
+                    fields["Rss"] = int(line.split()[1])  # kB
+    except OSError:
+        pass
+    return fields
+
+
+def _log_memory(label: str) -> None:
+    """Log RSS to stderr and update the Prometheus gauge."""
+    m = _read_smaps_rollup()
+    if not m:
+        print(f"[mem] {label}: smaps unavailable", file=sys.stderr)
+        return
+    rss_mb = m.get("Rss", 0) / 1024
+    print(f"[mem] {label}: RSS={rss_mb:.1f}MB", file=sys.stderr, flush=True)
+    _VA_RSS.set(m.get("Rss", 0) * 1024)
+
+
+# ---------------------------------------------------------------------------
+# Background mem logger
+# ---------------------------------------------------------------------------
+
+def _start_mem_logger(interval_s: int) -> None:
+    """Background thread: log RSS and update the gauge every interval_s seconds."""
     import time
 
     def _loop():
         t0 = time.monotonic()
         while True:
             time.sleep(interval_s)
-            elapsed_min = (time.monotonic() - t0) / 60
-            _log_memory(f"t={elapsed_min:.1f}min")
+            elapsed = time.monotonic() - t0
+            _log_memory(f"t={elapsed / 60:.1f}min")
 
-    t = threading.Thread(target=_loop, daemon=True, name="mem-logger")
-    t.start()
+    threading.Thread(target=_loop, daemon=True, name="mem-logger").start()
 
+
+# ---------------------------------------------------------------------------
+# Model helpers
+# ---------------------------------------------------------------------------
+
+def _find_bmad_model(model):
+    """Return the LUMEBmadModel, whether wrapped in a StagedModel or used directly."""
+    if hasattr(model, "tao"):
+        return model
+    for stage in getattr(model, "lume_model_instances", []) or []:
+        if hasattr(stage, "tao"):
+            return stage
+    return None
+
+
+# ---------------------------------------------------------------------------
+# PV post instrumentation
+# ---------------------------------------------------------------------------
+
+def _instrument_pv_posts(runner) -> None:
+    """Wrap SharedPV.post() on all runner PVs to count posts via prometheus_client."""
+    for var_name, pv in runner.pvs.items():
+        pv_name = runner.var_to_pv.get(var_name, var_name)
+        original_post = pv.post
+
+        def _counted_post(value, _n=pv_name, _o=original_post):
+            _VA_PV_POSTS.labels(pv=_n).inc()
+            _o(value)
+
+        pv.post = _counted_post
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main():
     _disable_thp()
     _log_memory("startup")
-    model_name = os.environ.get("MODEL", "cu_hxr_bmad")
-    end_element = os.environ.get("END_ELEMENT", "OTR4")
-    n_particles = int(os.environ.get("N_PARTICLES", "10000"))
-    log_level = os.environ.get("LOG_LEVEL", "INFO")
+
+    model_name        = os.environ.get("MODEL", "bmad_cu_hxr")
+    end_element       = os.environ.get("END_ELEMENT")
+    n_particles_env   = os.environ.get("N_PARTICLES")
+    log_level         = os.environ.get("LOG_LEVEL", "INFO")
     mem_log_interval_s = int(os.environ.get("MEM_LOG_INTERVAL_S", "300"))
-    remote_inputs = os.environ.get("REMOTE_INPUTS", "").lower() in ("true", "1", "yes")
-    pv_suffix = os.environ.get("PV_SUFFIX", "")
-    pv_suffix_ml = os.environ.get("PV_SUFFIX_ML", "")
-    pv_suffix_ph = os.environ.get("PV_SUFFIX_PH", "")
-    pv_renames = json.loads(os.environ.get("PV_RENAMES", "{}"))
+    remote_inputs     = os.environ.get("REMOTE_INPUTS", "").lower() in ("true", "1", "yes")
+    pv_suffix         = os.environ.get("PV_SUFFIX", "")
+    pv_renames        = json.loads(os.environ.get("PV_RENAMES", "{}"))
+    metrics_port      = int(os.environ.get("METRICS_PORT", "9090"))
+    radiation_fluct   = os.environ.get("BMAD_RADIATION_FLUCTUATIONS", "").strip().lower()
+    # snapshot: take_snapshot() serially pvget()s every remote input each cycle. Slow but
+    # coherent -- all inputs are latched together, which matters for whole-beamline sims.
+    # continuous: inputs subscribed via monitor at startup, updates arrive async. Much faster
+    # per cycle (no per-cycle network get storm), but inputs arrive independently.
+    remote_model_mode = os.environ.get("REMOTE_MODEL_MODE", "snapshot").strip().lower()
+    # Ephemeral perf instrumentation: wrap Tao.cmd + model.set/get to log
+    # per-cycle wall-clock timing. Answers "where is the ~600ms model cycle going?".
+    # Enable by setting PERF_INSTRUMENT=1. Remove once perf work is complete.
+    perf_instrument = os.environ.get("PERF_INSTRUMENT", "").lower() in ("true", "1", "yes")
 
     import logging
     logging.basicConfig(level=getattr(logging, log_level))
     logging.getLogger("pytao").setLevel(logging.WARNING)
 
-
     from lume_pva.runner import Runner
-    from virtual_accelerator.models.cu_hxr import (
-        get_cu_hxr_bmad_model,
-        get_cu_hxr_staged_model,
-    )
-    from virtual_accelerator.models.facet2 import (
-        get_facet_bmad_model,
-        get_facet_staged_model,
-    )
+    from virtual_accelerator.registry import _CHAIN_ALIASES, get_model
+    from virtual_accelerator.registry.models import MODELS
 
-    if model_name == "cu_hxr_bmad":
-        model = get_cu_hxr_bmad_model(end_element=end_element, track_beam=True)
-    elif model_name == "cu_hxr_staged":
-        model = get_cu_hxr_staged_model(end_element=end_element, n_particles=n_particles)
-    elif model_name == "facet_bmad":
-        model = get_facet_bmad_model(end_element=end_element, track_beam=True)
-    elif model_name == "facet_staged":
-        model = get_facet_staged_model(end_element=end_element, n_particles=n_particles)
+    if model_name == "cu_hxr_rmat":
+        start_element = os.environ.get("START_ELEMENT")
+        if not start_element:
+            raise ValueError("cu_hxr_rmat requires START_ELEMENT")
+        from virtual_accelerator.models.special import get_cu_hxr_rmat
+        model = get_cu_hxr_rmat(start_element=start_element, end_element=end_element)
     else:
-        raise ValueError(f"Unknown model: {model_name}")
+        # Chain aliases resolve to a (upstream, downstream) pair; a bare model
+        # name falls through as a 1-tuple. We pass every env-sourced kwarg
+        # through and let get_model reject mismatches, so a copy-pasted
+        # deployment spec surfaces loudly instead of being silently ignored.
+        stage_names = _CHAIN_ALIASES.get(model_name, (model_name,))
+        try:
+            entries = [MODELS[name] for name in stage_names]
+        except KeyError:
+            raise ValueError(f"Unknown model: {model_name}")
+
+        kwargs = {}
+        if end_element is not None:
+            kwargs["end_ele"] = end_element
+        if n_particles_env is not None:
+            kwargs["n_particles"] = int(n_particles_env)
+        # get_model auto-forces track_beam on chain stages; single models need the push.
+        if len(entries) == 1 and "track_beam" in entries[0].params:
+            kwargs["track_beam"] = True
+        model = get_model(model_name, **kwargs)
 
     _log_memory("model-loaded")
+
+    # cu_hxr tao.init sets radiation_fluctuations_on = T; override lets us turn it off for
+    # linear-optics models (e.g. rmat) where radiation fluctuations are unwanted noise.
+    # Unset leaves the lattice value untouched.
+    if radiation_fluct:
+        bmad_stage = _find_bmad_model(model)
+        if bmad_stage is None:
+            print("[radiation] WARNING no Bmad model found; override NOT applied",
+                  file=sys.stderr, flush=True)
+        else:
+            flag = "T" if radiation_fluct in ("on", "true", "1", "yes") else "F"
+            bmad_stage.tao.cmd(f"set bmad_com radiation_fluctuations_on = {flag}")
+            print(f"[radiation] override: bmad_com radiation_fluctuations_on = {flag} "
+                  f"(lattice default is T)", file=sys.stderr, flush=True)
+
+    if perf_instrument:
+        import time as _perf_time
+        _perf_state = {"cmds": [], "cycle_id": 0}
+
+        # Wrap Tao.cmd on the live subprocess so we count and time every pipe RTT.
+        _bmad_stage = _find_bmad_model(model)
+        if _bmad_stage is None:
+            print("[perf] WARNING: no Bmad model; Tao.cmd instrumentation disabled",
+                  file=sys.stderr, flush=True)
+        else:
+            _tao_instance = _bmad_stage.tao
+            _orig_cmd = _tao_instance.cmd
+            def _timed_cmd(cmd, *a, **kw):
+                _t0 = _perf_time.perf_counter()
+                _r = _orig_cmd(cmd, *a, **kw)
+                _perf_state["cmds"].append((cmd[:60], _perf_time.perf_counter() - _t0))
+                return _r
+            _tao_instance.cmd = _timed_cmd
+            print("[perf] Tao.cmd wrapped; per-cycle summary will follow each model.set()",
+                  file=sys.stderr, flush=True)
+
+        # Wrap model.set / model.get to bound one "cycle" and flush the tao.cmd tally.
+        _orig_set = model.set
+        _orig_get = model.get
+        def _timed_set(values, *a, **kw):
+            _perf_state["cmds"].clear()
+            _t0 = _perf_time.perf_counter()
+            _r = _orig_set(values, *a, **kw)
+            _elapsed_ms = (_perf_time.perf_counter() - _t0) * 1000
+            _cmds = _perf_state["cmds"]
+            _tot_ms = sum(d for _, d in _cmds) * 1000
+            _n = len(_cmds)
+            _perf_state["cycle_id"] += 1
+            _cid = _perf_state["cycle_id"]
+            print(
+                f"[perf] cycle {_cid}: model.set({len(values)} inputs) = {_elapsed_ms:.1f}ms; "
+                f"tao.cmd N={_n} total={_tot_ms:.1f}ms "
+                f"mean={_tot_ms / _n if _n else 0:.1f}ms "
+                f"max={(max(d for _, d in _cmds) * 1000) if _cmds else 0:.1f}ms",
+                file=sys.stderr, flush=True,
+            )
+            # Also log the slowest 3 individual cmds so we can spot outliers.
+            if _cmds:
+                _slow = sorted(_cmds, key=lambda x: -x[1])[:3]
+                for _c, _d in _slow:
+                    print(f"[perf] cycle {_cid}: slow cmd {_d*1000:.1f}ms  {_c!r}",
+                          file=sys.stderr, flush=True)
+            return _r
+        def _timed_get(names, *a, **kw):
+            _perf_state["cmds"].clear()
+            _t0 = _perf_time.perf_counter()
+            _r = _orig_get(names, *a, **kw)
+            _elapsed_ms = (_perf_time.perf_counter() - _t0) * 1000
+            _n = len(_perf_state["cmds"])
+            _tot_ms = sum(d for _, d in _perf_state["cmds"]) * 1000
+            print(
+                f"[perf] cycle {_perf_state['cycle_id']}: model.get({len(names) if hasattr(names, '__len__') else '?'} names) "
+                f"= {_elapsed_ms:.1f}ms; tao.cmd N={_n} total={_tot_ms:.1f}ms",
+                file=sys.stderr, flush=True,
+            )
+            return _r
+        model.set = _timed_set
+        model.get = _timed_get
+        print("[perf] model.set / model.get wrapped", file=sys.stderr, flush=True)
 
     config = Runner.generate_config(model, remote_inputs=remote_inputs)
     config["protocol"] = ["pva"]
     config["update_rate"] = 0
 
-    # Apply PV renames before suffix
     for k, v in config['variables'].items():
         if v['pv'] in pv_renames:
             v['pv'] = pv_renames[v['pv']]
 
-    # Internal model variables that aren't real PVs — skip suffix
     skip_suffix = {"name"}
 
-    # Apply differentiated suffixes for staged models (ML vs physics)
-    if (pv_suffix_ml or pv_suffix_ph) and hasattr(model, 'lume_model_instances'):
-        ml_vars = set(model.lume_model_instances[0].supported_variables)
-        for k, v in config['variables'].items():
-            if v['mode'] == 'ro' and k not in skip_suffix:
-                if k in ml_vars:
-                    v['pv'] = v['pv'] + pv_suffix_ml
-                else:
-                    v['pv'] = v['pv'] + pv_suffix_ph
-    elif pv_suffix:
+    if pv_suffix:
         for k, v in config['variables'].items():
             if v['mode'] == 'ro' and k not in skip_suffix:
                 v['pv'] = v['pv'] + pv_suffix
 
-    config["remote_model_mode"] = "snapshot"
+    config["remote_model_mode"] = remote_model_mode
 
-    # Exclude variables that shouldn't be read remotely:
-    # - track_type: internal model variable, not a real PV
-    # - :BDES: conflicts with :BCTRL for the same physical field (last-write-wins)
     for k, v in config["variables"].items():
         if k == "track_type" or k.endswith(":BDES"):
             v["mode"] = "rw"
 
     runner = Runner(model, config=config)
-    
 
-    if remote_inputs:
-        import ctypes
+    _instrument_pv_posts(runner)
+
+    if metrics_port > 0:
+        start_http_server(metrics_port)
+        print(f"[metrics] Prometheus HTTP server on :{metrics_port}/metrics", file=sys.stderr, flush=True)
+
+    # In continuous mode, lume-pva subscribes to input PVs via monitors at startup and
+    # take_snapshot() is unused -- the runner is driven by _monitor_callback pushing to
+    # the queue asynchronously. Starting snapshot_loop here would just enqueue duplicate
+    # data every 100ms and burn CPU. Skip it.
+    if remote_inputs and remote_model_mode == "snapshot":
         import gc
-        import threading
+        import time as _time
         import torch
 
         _libc = ctypes.CDLL("libc.so.6")
-
-        import time as _time
 
         # Throttle to the runner's update_rate so the queue never backlogs.
         # Without a sleep, take_snapshot() runs as fast as network allows (~40 Hz),
@@ -195,18 +356,40 @@ def main():
             with torch.no_grad():
                 while True:
                     t0 = _time.monotonic()
-                    runner.take_snapshot()
+
+                    # Wait for queue to drain before producing next item.
+                    # If consumer (model) is slower than producer (snapshot),
+                    # the queue backlog grows — each item holds a p4p.Value
+                    # (C++ PVStructure) that accumulates in the heap.
+                    _wait_t0 = _time.monotonic()
+                    while runner.queue.qsize() > 1:
+                        _time.sleep(0.01)
+                    _VA_SNAP_WAIT.observe(_time.monotonic() - _wait_t0)
+                    _VA_QUEUE_SIZE.set(runner.queue.qsize())
+
+                    try:
+                        runner.take_snapshot()
+                    except (TimeoutError, Exception) as e:
+                        print(f"[snapshot] WARNING: take_snapshot() failed: {e}",
+                              file=sys.stderr, flush=True)
+                        _time.sleep(_snapshot_interval)
+                        continue
                     cycle += 1
+
+                    _VA_SNAP_CYCLES.inc()
+                    _VA_SNAP_DURATION.observe(_time.monotonic() - t0)
+
                     if cycle % 50 == 0:
                         gc.collect()
                         _libc.malloc_trim(0)
+                        _VA_GC_COLLECT.inc()
+
                     elapsed = _time.monotonic() - t0
                     sleep = _snapshot_interval - elapsed
                     if sleep > 0:
                         _time.sleep(sleep)
 
-        t = threading.Thread(target=snapshot_loop, args=(runner,), daemon=True)
-        t.start()
+        threading.Thread(target=snapshot_loop, args=(runner,), daemon=True).start()
 
     _log_memory("runner-started")
     _start_mem_logger(interval_s=mem_log_interval_s)

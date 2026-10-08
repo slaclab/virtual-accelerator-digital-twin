@@ -1,6 +1,6 @@
 # Development History & Agent Notes
 
-This document captures the development history, design decisions, and operational knowledge for the Virtual Accelerator Digital Twin project.
+This document captures the architecture, design decisions, and operational knowledge for the Virtual Accelerator Digital Twin project.
 
 ## Project Overview
 
@@ -19,7 +19,6 @@ The Digital Twin (DT) runs a staged physics model (ML surrogate + Bmad) inside a
 │                                                                  │
 │  Snapshot Loop (thread):                                         │
 │    get live inputs (PVA/CA) → run model → serve outputs (PVA)   │
-│    ~20s per cycle                                                │
 │                                                                  │
 │  Model: StagedModel                                              │
 │    Stage 0: InjectorSurrogate (ML, PyTorch)                     │
@@ -34,13 +33,13 @@ The Digital Twin (DT) runs a staged physics model (ML surrogate + Bmad) inside a
 
 ## Key Design Decisions
 
-### Snapshot mode (not continuous)
+### Snapshot mode (default) vs continuous
 
 lume-pva supports two remote modes:
-- **continuous**: monitors remote PVs, re-evaluates on every change
-- **snapshot**: fetches all inputs with `get()`, runs model, repeats
+- **snapshot**: `runner.take_snapshot()` pvget()s every input each cycle. Coherent (all inputs latched together), slower.
+- **continuous**: inputs subscribed via monitors at startup, updates arrive async. ~10x faster per cycle, inputs arrive independently.
 
-We use snapshot mode because PVA monitors don't work reliably through the socat proxy. The snapshot loop calls `runner.take_snapshot()` (public API) sequentially — no sleep needed since the model takes ~20s per cycle.
+Snapshot is the default (`REMOTE_MODEL_MODE=snapshot`) for whole-beamline sims. Continuous is used for the rmat overlay where strict input coherency isn't required.
 
 ### Input filtering
 
@@ -50,37 +49,17 @@ The `track_type` and `name` variables are also excluded (internal model variable
 
 ### Output PV naming
 
-Output PVs are suffixed to distinguish them from real machine PVs:
-- ML model outputs: `<PV>_CU_HXR_LUME_ML_DT`
-- Physics model outputs: `<PV>_CU_HXR_LUME_PH_DT`
+Output PVs are suffixed to distinguish them from real machine PVs. The suffix is set per-overlay via `PV_SUFFIX` (e.g. `_LUME_SM1` for cu_hxr_staged, `_LUME_PH1` for bmad, `_LUME_PH2` for rmat). Only outputs (`mode='ro'`) get the suffix.
 
-Only outputs (`mode='ro'`) get the suffix. Inputs are not served.
+### Radiation fluctuations override
 
-### Memory management
-
-The model creates new ParticleGroup objects (10k particles) every cycle. To prevent OOM:
-- `torch.no_grad()` wraps the snapshot loop (prevents computation graph accumulation)
-- `gc.collect()` runs every 50 cycles (~17 min)
-- Upstream fix needed: `beam_output.py` should reuse Generator instances
+`BMAD_RADIATION_FLUCTUATIONS` (unset by default) overrides the lattice's `radiation_fluctuations_on` setting to `on`/`off`. cu_hxr's `tao.init` sets it `T` by default; models that don't need stochastic radiation noise (e.g. rmat's linear-optics calc) set it `off`. Unset leaves the lattice value untouched.
 
 ### EPICS connectivity
 
 The pod uses `pvua` which auto-discovers providers (tries PVA first, falls back to CA). Both protocols are configured through a socat proxy service (`epics-proxy.epics-socat-proxy`).
 
 `PYEPICS_LIBCA` is set in the Dockerfile ENV and also discovered dynamically in the entrypoint via `ldd $(which caget)`.
-
-## Issues Encountered & Resolved
-
-| Issue | Cause | Fix |
-|-------|-------|-----|
-| 1970 timestamps | `time.monotonic()` in lume-pva | Updated to latest lume-pva |
-| Private API (`_enqueue`) | Custom polling loop | Replaced with `take_snapshot()` |
-| Suffix on inputs | Mode check included `rw` | Changed to `ro` only |
-| ACCL PVs unreachable | CA-only PVs, no CA config | Added CA env vars + epics-base |
-| `track_type` validation | Internal var marked remote | Excluded from remote mode |
-| BDES/BCTRL conflict | Both write same magnet field | Excluded `:BDES` from remote |
-| OOM after 2 days | ParticleGroup/tensor accumulation | `torch.no_grad()` + `gc.collect()` |
-| `name` PV not real | Model metadata variable | Removed from config |
 
 ## Deploying a New Model
 
@@ -92,6 +71,7 @@ The Docker image supports all available models. No rebuild is needed — just cr
 |------------|-------------|
 | `cu_hxr_bmad` | CU HXR physics only (Bmad) |
 | `cu_hxr_staged` | CU HXR staged (ML injector + Bmad) |
+| `cu_hxr_rmat` | CU HXR transfer-matrix (linear optics, WS-WS range) |
 | `facet_bmad` | FACET-II physics only (Bmad) |
 | `facet_staged` | FACET-II staged (ML injector + Bmad) |
 
@@ -99,27 +79,27 @@ The Docker image supports all available models. No rebuild is needed — just cr
 
 1. **Create the overlay directory:**
    ```bash
-   mkdir -p kubernetes/overlays/<model-name>
+   mkdir -p kubernetes/overlays/<env>/<model-name>
    ```
 
 2. **Create `kustomization.yaml`:**
    ```yaml
    apiVersion: kustomize.config.k8s.io/v1beta1
    kind: Kustomization
+   namespace: virtual-accelerator
    resources:
-     - ../../base
+     - ../../../base
    generatorOptions:
      disableNameSuffixHash: true
    configMapGenerator:
      - name: va-config
        behavior: create
        literals:
-         - MODEL=<model_name>              # e.g. facet_staged
+         - MODEL=<model_name>
          - REMOTE_INPUTS=true
-         - PV_SUFFIX_ML=<ml_suffix>        # e.g. _FACET_LUME_ML_DT
-         - PV_SUFFIX_PH=<ph_suffix>        # e.g. _FACET_LUME_PH_DT
+         - PV_SUFFIX=<suffix>              # e.g. _LUME_SM1
          - PV_RENAMES={}                   # JSON dict of output PV renames
-         - END_ELEMENT=<element>           # e.g. ENDM
+         - END_ELEMENT=<element>           # e.g. OTR4
          - N_PARTICLES=10000
          - LOG_LEVEL=INFO
          - LCLS_LATTICE=/opt/lcls-lattice
@@ -138,27 +118,16 @@ The Docker image supports all available models. No rebuild is needed — just cr
 
 3. **Deploy:**
    ```bash
-   kubectl apply -k kubernetes/overlays/<model-name>
+   kubectl apply -k kubernetes/overlays/<env>/<model-name>
    ```
 
 4. **Verify:**
    ```bash
    kubectl logs -f deployment/virtual-accelerator -n virtual-accelerator
    # Wait for "PVA server listening on port: 5075"
-   # Then test:
    kubectl exec <pod> -- env EPICS_PVA_NAME_SERVERS="127.0.0.1:5075" \
      python -c "from p4p.client.thread import Context; ctx = Context('pva'); print(ctx.get('<output-pv>', timeout=30))"
    ```
-
-### Naming convention for new models
-
-Follow the pattern: `<PV>_<BEAMLINE>_LUME_<MODEL_TYPE>_DT`
-
-| Component | Examples |
-|-----------|----------|
-| Beamline | `CU_HXR`, `FACET`, `CU_SXR` |
-| Model type | `ML` (surrogate), `PH` (physics/Bmad) |
-| Suffix | Always ends with `_DT` (Digital Twin) |
 
 ## Validation
 
@@ -168,13 +137,9 @@ Two scripts in `scripts/` support output validation:
 2. **`validate_dt.py`** — runs on a dev server, replays inputs through a local model and compares
 
 ```bash
-# Step 1: Capture from pod
 kubectl cp scripts/capture_dt.py <pod>:/app/scripts/capture_dt.py
 kubectl exec <pod> -- python scripts/capture_dt.py --duration 60
 kubectl cp <pod>:/tmp/dt_capture.json ./dt_capture.json
-
-# Step 2: Validate on dev server
-scp dt_capture.json dev-srv09:~/
 python scripts/validate_dt.py dt_capture.json
 ```
 
@@ -193,14 +158,69 @@ GitHub Actions workflow (`.github/workflows/build-container.yml`):
 
 Manual trigger with "no-cache" checkbox available for forcing fresh dependency installs.
 
+## Prometheus Metrics
+
+`run.py` exposes a Prometheus `/metrics` endpoint on port `METRICS_PORT` (default 9090).
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `va_thp_disabled` | Gauge | 1 if THP successfully disabled |
+| `va_runner_queue_size` | Gauge | Current runner queue depth |
+| `va_snapshot_cycles_total` | Counter | Total `take_snapshot()` calls |
+| `va_snapshot_duration_seconds` | Histogram | Time per snapshot cycle |
+| `va_snapshot_queue_wait_seconds` | Histogram | Time waiting for queue to drain |
+| `va_gc_collects_total` | Counter | GC+malloc_trim invocations |
+| `va_pv_posts_total{pv=...}` | Counter | SharedPV post() calls per PV |
+
+Kubernetes `ServiceMonitor` in `kubernetes/base/servicemonitor.yaml` scrapes every 30s.
+
+Monitor locally:
+```bash
+kubectl port-forward svc/virtual-accelerator 9090:9090 -n virtual-accelerator
+curl http://localhost:9090/metrics | grep "^va_"
+```
+
+## Local Development (devcontainer)
+
+`.devcontainer/` provides a VSCode devcontainer with two services:
+- **devenv** — full `base` image stage with `/workspace` volume-mounted; run `run.py` live
+- **mock-ioc** — serves the 16 real snapshot PVs via PVA on port 5076
+
+```bash
+# Open in VSCode: Ctrl+Shift+P → "Dev Containers: Reopen in Container"
+# Or via CLI
+devcontainer up --workspace-folder .
+```
+
+### EPICS tools in devcontainer
+
+```bash
+source /workspace/scripts/dev_epics_env.sh
+pvget QUAD:IN20:631:BCTRL
+pvput QUAD:IN20:631:BCTRL 7.5
+pvmon SOLN:IN20:121:BCTRL
+```
+
+## Testing
+
+```bash
+pip install -e ".[test]"
+pytest tests/ -m "not integration"
+
+# Docker integration tests
+docker compose -f docker-compose.integration.yml run --rm pv-client
+```
+
 ## Dependencies (pinned in Dockerfile)
 
 | Package | Source | Notes |
 |---------|--------|-------|
-| virtual-accelerator | GitHub (pinned commit) | The model definitions |
+| virtual-accelerator | GitHub (pinned commit) | Model definitions + surrogate extras |
 | lume-pva | GitHub (latest main) | PV server framework |
 | lume-bmad | GitHub (latest main) | Bmad model wrapper |
+| lume-torch | GitHub (latest main) | Torch variable types for surrogate |
 | bmad, pytao | conda-forge | Lattice physics engine |
-| epics-base, pvxs | conda-forge | EPICS CA/PVA libraries |
+| epics-base, pvxs=1.5.2 | conda-forge | EPICS CA/PVA libraries |
 | torch | PyPI (CPU only) | ML surrogate inference |
+| prometheus-client | PyPI | Prometheus metrics HTTP server |
 | lcls-lattice | GitHub (pinned commit) | Lattice definition files |

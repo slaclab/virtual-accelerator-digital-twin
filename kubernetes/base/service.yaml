@@ -15,3 +15,7 @@ spec:
       port: 5076
       targetPort: 5076
       protocol: UDP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
