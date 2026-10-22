@@ -27,7 +27,9 @@ PV_RENAMES = {
 }
 
 PV_SUFFIX = os.environ.get("PV_SUFFIX", "")
-DT_MODEL = os.environ.get("DT_MODEL", "cu_hxr_staged")
+# Match run.py: resolve the model from the pod's own MODEL env var so capture
+# tracks whichever overlay (bmad / rmat / cu_hxr_staged) is actually deployed.
+MODEL_NAME = os.environ.get("MODEL", "bmad_cu_hxr")
 
 
 def to_serializable(val):
@@ -99,15 +101,34 @@ def main():
     parser.add_argument("--output", default="/tmp/dt_capture.json", help="Output file path")
     args = parser.parse_args()
 
-    print(f"Loading model {DT_MODEL} to get variable names...")
-    if DT_MODEL == "cu_hxr_bmad":
-        from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
-        model = get_cu_hxr_bmad_model(end_element="OTR4", track_beam=True)
-    elif DT_MODEL == "cu_hxr_staged":
-        from virtual_accelerator.models.cu_hxr import get_cu_hxr_staged_model
-        model = get_cu_hxr_staged_model(end_element="OTR4", n_particles=10000)
+    end_element     = os.environ.get("END_ELEMENT")
+    n_particles_env = os.environ.get("N_PARTICLES")
+
+    print(f"Loading model {MODEL_NAME} to get variable names...")
+    if MODEL_NAME == "cu_hxr_rmat":
+        start_element = os.environ.get("START_ELEMENT")
+        if not start_element:
+            raise ValueError("cu_hxr_rmat requires START_ELEMENT")
+        from virtual_accelerator.models.special import get_cu_hxr_rmat
+        model = get_cu_hxr_rmat(start_element=start_element, end_element=end_element)
     else:
-        raise ValueError(f"Unknown DT_MODEL: {DT_MODEL}")
+        from virtual_accelerator.registry import _CHAIN_ALIASES, get_model
+        from virtual_accelerator.registry.models import MODELS
+
+        stage_names = _CHAIN_ALIASES.get(MODEL_NAME, (MODEL_NAME,))
+        try:
+            entries = [MODELS[name] for name in stage_names]
+        except KeyError:
+            raise ValueError(f"Unknown model: {MODEL_NAME}")
+
+        kwargs = {}
+        if end_element is not None:
+            kwargs["end_ele"] = end_element
+        if n_particles_env is not None:
+            kwargs["n_particles"] = int(n_particles_env)
+        if len(entries) == 1 and "track_beam" in entries[0].params:
+            kwargs["track_beam"] = True
+        model = get_model(MODEL_NAME, **kwargs)
 
     input_names = [n for n, v in model.supported_variables.items()
                    if not v.read_only and n != "track_type"

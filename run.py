@@ -22,8 +22,11 @@ import json
 import os
 import sys
 import threading
+import time
 
 faulthandler.enable()
+
+_PROCESS_START_TIME = time.monotonic()
 
 from prometheus_client import (
     Counter,
@@ -48,6 +51,9 @@ _VA_SNAP_WAIT       = Histogram("va_snapshot_queue_wait_seconds",
                                 buckets=[0, .001, .005, .01, .05, .1, .5, 1.0, 5.0])
 _VA_GC_COLLECT      = Counter("va_gc_collects",          "GC+malloc_trim invocations")
 _VA_RSS             = Gauge("va_rss_bytes",              "Process RSS in bytes")
+_VA_ANON            = Gauge("va_anon_bytes",             "Process anonymous memory in bytes")
+_VA_ANON_HUGE       = Gauge("va_anon_huge_pages_bytes",  "Process anonymous huge pages in bytes")
+_VA_UPTIME          = Gauge("va_uptime_seconds",         "Process uptime in seconds")
 
 _VA_PV_POSTS        = Counter("va_pv_posts",             "SharedPV post() calls", ["pv"])
 
@@ -95,13 +101,18 @@ def _read_smaps_rollup() -> dict:
             for line in f:
                 if line.startswith("Rss:"):
                     fields["Rss"] = int(line.split()[1])  # kB
+                elif line.startswith("Anonymous:"):
+                    fields["Anonymous"] = int(line.split()[1])  # kB
+                elif line.startswith("AnonHugePages:"):
+                    fields["AnonHugePages"] = int(line.split()[1])  # kB
     except OSError:
         pass
     return fields
 
 
 def _log_memory(label: str) -> None:
-    """Log RSS to stderr and update the Prometheus gauge."""
+    """Log memory to stderr and update Prometheus gauges."""
+    _VA_UPTIME.set(time.monotonic() - _PROCESS_START_TIME)
     m = _read_smaps_rollup()
     if not m:
         print(f"[mem] {label}: smaps unavailable", file=sys.stderr)
@@ -109,6 +120,8 @@ def _log_memory(label: str) -> None:
     rss_mb = m.get("Rss", 0) / 1024
     print(f"[mem] {label}: RSS={rss_mb:.1f}MB", file=sys.stderr, flush=True)
     _VA_RSS.set(m.get("Rss", 0) * 1024)
+    _VA_ANON.set(m.get("Anonymous", 0) * 1024)
+    _VA_ANON_HUGE.set(m.get("AnonHugePages", 0) * 1024)
 
 
 # ---------------------------------------------------------------------------
@@ -116,9 +129,7 @@ def _log_memory(label: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _start_mem_logger(interval_s: int) -> None:
-    """Background thread: log RSS and update the gauge every interval_s seconds."""
-    import time
-
+    """Background thread: log memory and update gauges every interval_s seconds."""
     def _loop():
         t0 = time.monotonic()
         while True:

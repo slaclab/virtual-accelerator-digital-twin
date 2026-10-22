@@ -22,10 +22,9 @@ EPICS_PVA_NAME_SERVERS="127.0.0.1:5075" pvget BPMS:IN20:581:TMIT
 kubectl apply -k kubernetes/overlays/prod/cu_hxr_staged/
 ```
 
-For a development deployment that uses the locally built image:
+For a development deployment (pulls `ghcr.io/slaclab/virtual-accelerator-digital-twin:feature-prometheus`):
 
 ```bash
-docker build -t va-digital-twin:local .
 kubectl apply -k kubernetes/overlays/dev/cu_hxr_staged/
 ```
 
