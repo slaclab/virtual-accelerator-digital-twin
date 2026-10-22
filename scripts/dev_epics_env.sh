@@ -14,10 +14,10 @@ alias pvget='python -m p4p.client.cli get'
 alias pvput='python -m p4p.client.cli put'
 alias pvmon='python -m p4p.client.cli monitor'
 
-# CA tools — libca from conda
-export PYEPICS_LIBCA="/opt/conda/epics/lib/linux-x86_64/libca.so"
-export LD_LIBRARY_PATH="/opt/conda/epics/lib/linux-x86_64:${LD_LIBRARY_PATH:-}"
-export PATH="/opt/conda/epics/bin/linux-x86_64:/opt/conda/bin:$PATH"
+# CA tools — source-built EPICS Base
+export PYEPICS_LIBCA="/opt/epics/base/lib/linux-x86_64/libca.so"
+export LD_LIBRARY_PATH="/opt/epics/base/lib/linux-x86_64:/opt/epics/pvxs/lib/linux-x86_64:${LD_LIBRARY_PATH:-}"
+export PATH="/opt/epics/base/bin/linux-x86_64:/opt/epics/pvxs/bin/linux-x86_64:/opt/conda/bin:$PATH"
 
 case "$MODE" in
   --va-only)
