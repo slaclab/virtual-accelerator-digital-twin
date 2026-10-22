@@ -24,8 +24,7 @@ PV_RENAMES = {
     "norm_emit_x": "OTRS:IN20:571:EMITN_X",
     "norm_emit_y": "OTRS:IN20:571:EMITN_Y",
 }
-PV_SUFFIX_ML = "_CU_HXR_LUME_ML_DT"
-PV_SUFFIX_PH = "_CU_HXR_LUME_PH_DT"
+PV_SUFFIX = os.environ.get("PV_SUFFIX", "")
 
 
 def to_numpy(val):
@@ -109,10 +108,6 @@ def main():
     output_names = [name for name, var in model.supported_variables.items() if var.read_only]
     local_outputs = model.get(output_names)
 
-    # Determine ML vs physics outputs
-    ml_vars = set(model.lume_model_instances[0].supported_variables)
-
-    # Fetch DT outputs and compare
     print(f"Fetching DT outputs from {DT_PVA_SERVER}...\n")
     dt_ctx = PVAContext("pva", conf={"EPICS_PVA_NAME_SERVERS": DT_PVA_SERVER})
 
@@ -126,12 +121,7 @@ def main():
     for name in output_names:
         local_val = local_outputs.get(name)
 
-        # Build DT PV name
-        pv_name = PV_RENAMES.get(name, name)
-        if name in ml_vars:
-            dt_pv = pv_name + PV_SUFFIX_ML
-        else:
-            dt_pv = pv_name + PV_SUFFIX_PH
+        dt_pv = PV_RENAMES.get(name, name) + PV_SUFFIX
 
         # Fetch DT value
         try:

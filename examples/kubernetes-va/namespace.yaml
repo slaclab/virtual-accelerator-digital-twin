@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: virtual-accelerator
-  labels:
-    app.kubernetes.io/part-of: virtual-accelerator-digital-twin
