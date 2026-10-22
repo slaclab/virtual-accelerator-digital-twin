@@ -220,7 +220,7 @@ docker compose -f docker-compose.integration.yml run --rm pv-client
 | lume-bmad | GitHub (latest main) | Bmad model wrapper |
 | lume-torch | GitHub (latest main) | Torch variable types for surrogate |
 | bmad, pytao | conda-forge | Lattice physics engine |
-| epics-base, pvxs=1.5.2 | conda-forge | EPICS CA/PVA libraries |
+| epics-base, pvxs | Source builds | EPICS Base 7.0.10 and PVXS channel-cleanup branch |
 | torch | PyPI (CPU only) | ML surrogate inference |
 | prometheus-client | PyPI | Prometheus metrics HTTP server |
 | lcls-lattice | GitHub (pinned commit) | Lattice definition files |
