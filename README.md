@@ -19,7 +19,7 @@ EPICS_PVA_NAME_SERVERS="127.0.0.1:5075" pvget BPMS:IN20:581:TMIT
 ### Kubernetes (Digital Twin with live inputs)
 
 ```bash
-kubectl apply -k kubernetes/overlays/prod/
+kubectl apply -k kubernetes/overlays/prod/cu_hxr_staged/
 ```
 
 For a development deployment that uses the locally built image:
