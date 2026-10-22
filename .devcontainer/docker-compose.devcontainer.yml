@@ -51,5 +51,5 @@ services:
       NOISE_SIGMA_PCT: "0.1"
       LOG_LEVEL: INFO
       EPICS_PVA_AUTO_ADDR_LIST: "YES"
-      EPICS_PVA_SERVER_PORT: "5076"
+      EPICS_PVAS_SERVER_PORT: "5076"
       PV_LIST: /workspace/scripts/pv_list.txt
