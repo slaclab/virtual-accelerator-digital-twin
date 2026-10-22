@@ -269,7 +269,8 @@ def _nt_for(pv_type: str, nominal):
 
 def _start_pva_server(specs: dict) -> dict:
     """specs: {name: (pv_type, nominal, unit, noise_pct)}"""
-    pva_port = int(os.environ.get("EPICS_PVA_SERVER_PORT", "5076"))
+    pva_port = int(os.environ.get("EPICS_PVAS_SERVER_PORT", "5076"))
+    os.environ.setdefault("EPICS_PVAS_SERVER_PORT", str(pva_port))
     providers = {}
     pv_objects = {}
 
