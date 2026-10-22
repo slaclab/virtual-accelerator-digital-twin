@@ -1708,7 +1708,7 @@
                   "hidden": false,
                   "query": {
                     "datasource": {
-                      "name": "3NYPBf44k"
+                      "name": "${DS_LOKI}"
                     },
                     "group": "loki",
                     "kind": "DataQuery",
