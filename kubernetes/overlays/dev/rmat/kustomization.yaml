@@ -61,7 +61,7 @@ configMapGenerator:
       - EPICS_CA_AUTO_ADDR_LIST=NO
       - EPICS_CA_ADDR_LIST=
       - EPICS_CA_NAME_SERVERS=epics-proxy.epics-socat-proxy:5065
-      - PYEPICS_LIBCA=/opt/conda/lib/libca.so
+      - PYEPICS_LIBCA=/opt/epics/base/lib/linux-x86_64/libca.so
       # Radiation off for rmat: transfer-matrix calc is a linear-optics operation, radiation
       # fluctuations are stochastic noise on the off-diagonals. Also tests hypothesis that
       # PVA-side value dedupe was throttling output rate below cycle rate due to sub-threshold
