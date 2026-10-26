@@ -134,7 +134,7 @@ RUN python -m pip install --upgrade setuptools wheel pyepics prometheus-client \
     && python -m pip install --force-reinstall --no-deps \
         "lume-base==${LUME_BASE_VERSION}" \
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git" \
-        "lume-pva @ git+https://github.com/lume-science/lume-pva.git" \
+        "lume-pva @ git+https://github.com/lume-science/lume-pva.git@8507c963246766754e9a7116e5e604ae32dfa4c3" \
     && python -c "import lume, p4p; print('lume:', lume.__version__ if hasattr(lume, '__version__') else 'unknown'); assert p4p.__file__.startswith('/opt/epics/p4p-python/'), 'p4p was shadowed by a PyPI install: ' + p4p.__file__; print('p4p source-build still active:', p4p.__file__)"
 
 ENV PVA_PORT=5075
