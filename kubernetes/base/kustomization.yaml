@@ -5,6 +5,4 @@ resources:
   - namespace.yaml
   - deployment.yaml
   - service.yaml
-images:
-  - name: ghcr.io/slaclab/virtual-accelerator-digital-twin
-    newTag: latest
+  - servicemonitor.yaml

@@ -60,7 +60,9 @@ jobs:
       # PVs never come up, the job fails here and nothing is pushed.
       - name: Smoke test (boot container, verify PVs)
         run: |
-          docker run -d --name va-smoke --network host va-digital-twin:ci
+          docker run -d --name va-smoke --network host \
+            -e END_ELEMENT=OTR4 \
+            va-digital-twin:ci
           docker exec \
             -e SMOKE_STARTUP_TIMEOUT=300 \
             va-smoke python scripts/smoke_test.py

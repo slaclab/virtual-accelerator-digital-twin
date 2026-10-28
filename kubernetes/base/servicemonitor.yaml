@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: virtual-accelerator
+  namespace: virtual-accelerator
+  labels:
+    app: virtual-accelerator
+spec:
+  selector:
+    matchLabels:
+      app: virtual-accelerator
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics

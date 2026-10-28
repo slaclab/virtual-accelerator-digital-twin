@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: virtual-accelerator
+resources:
+  - ../../base
+generatorOptions:
+  disableNameSuffixHash: true
+images:
+  - name: ghcr.io/slaclab/virtual-accelerator-digital-twin
+    newTag: main
+configMapGenerator:
+  - name: va-config
+    namespace: virtual-accelerator
+    behavior: create
+    literals:
+      - MODEL=fast_cu_hxr_s2e
+      - REMOTE_INPUTS=true
+      - PV_SUFFIX=_LUME_SM1
+      - PV_RENAMES={"sigma_z":"OTRS:IN20:571:ZRMS","norm_emit_x":"OTRS:IN20:571:EMITN_X","norm_emit_y":"OTRS:IN20:571:EMITN_Y"}
+      - END_ELEMENT=OTR4
+      - N_PARTICLES=10000
+      - LOG_LEVEL=INFO
+      - LCLS_LATTICE=/opt/lcls-lattice
+      - KMP_DUPLICATE_LIB_OK=TRUE
+      - OMP_NUM_THREADS=2
+      - MKL_NUM_THREADS=2
+      - OPENBLAS_NUM_THREADS=2
+      - TORCH_NUM_THREADS=2
+      - EPICS_PVA_AUTO_ADDR_LIST=NO
+      - EPICS_PVA_BROADCAST_PORT=0
+      - EPICS_PVA_NAME_SERVERS=epics-proxy.epics-socat-proxy:5169
+      - EPICS_CA_AUTO_ADDR_LIST=NO
+      - EPICS_CA_ADDR_LIST=
+      - EPICS_CA_NAME_SERVERS=epics-proxy.epics-socat-proxy:5065
+      - PYEPICS_LIBCA=/opt/conda/lib/libca.so
